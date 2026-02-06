@@ -1,0 +1,21 @@
+# Secrets (NUNCA versionar)
+.env
+**/.env
+*.env
+*.key
+*.pem
+*.p12
+*.crt
+
+# Google Cloud / credenciais
+**/*service-account*.json
+**/*credentials*.json
+*.json
+
+# Logs e caches
+*.log
+__pycache__/
+node_modules/
+dist/
+build/
+

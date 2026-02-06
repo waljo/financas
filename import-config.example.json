@@ -1,0 +1,22 @@
+{
+  "sourceSheet": "2026",
+  "tipo": "despesa",
+  "year": 2026,
+  "monthStartCol": 2,
+  "startRow": 17,
+  "endRow": 120,
+  "mapping": {
+    "descricaoCol": 2,
+    "valorCol": 3,
+    "diaCol": 4,
+    "atribuicaoCol": 5,
+    "quemPagouCol": 6
+  },
+  "defaults": {
+    "categoria": "Despesas gerais",
+    "atribuicao": "AMBOS",
+    "metodo": "outro",
+    "quem_pagou": "WALKER"
+  },
+  "dryRun": true
+}

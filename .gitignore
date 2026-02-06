@@ -2,6 +2,8 @@
 .env
 **/.env
 *.env
+.env.local
+*.env.local
 *.key
 *.pem
 *.p12
@@ -10,7 +12,8 @@
 # Google Cloud / credenciais
 **/*service-account*.json
 **/*credentials*.json
-*.json
+token*.json
+.google-token.json
 
 # Logs e caches
 *.log
@@ -18,4 +21,7 @@ __pycache__/
 node_modules/
 dist/
 build/
-
+.next/
+coverage/
+*:Zone.Identifier
+*.tsbuildinfo

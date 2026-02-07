@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { ContaFixa } from "@/lib/types";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -28,9 +29,50 @@ export default function LancarPage() {
   );
 
   const [form, setForm] = useState(initialState);
+  const [contasFixas, setContasFixas] = useState<ContaFixa[]>([]);
+  const [contaFixaId, setContaFixaId] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    async function loadContasFixas() {
+      try {
+        const response = await fetch("/api/contas-fixas");
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.message ?? "Erro ao carregar contas fixas");
+        }
+        setContasFixas((payload.data ?? []).filter((item: ContaFixa) => item.ativo));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erro ao carregar contas fixas");
+      }
+    }
+
+    loadContasFixas();
+  }, []);
+
+  function applyContaFixa(id: string) {
+    setContaFixaId(id);
+    const conta = contasFixas.find((item) => item.id === id);
+    if (!conta) return;
+    setForm((prev) => ({
+      ...prev,
+      tipo: "despesa",
+      descricao: conta.nome,
+      categoria: conta.categoria,
+      atribuicao: conta.atribuicao,
+      valor: conta.valor_previsto !== null ? String(conta.valor_previsto) : prev.valor
+    }));
+  }
+
+  function buildObservacao(base: string, fixedId: string) {
+    if (!fixedId) return base;
+    const tag = `[CONTA_FIXA:${fixedId}]`;
+    if (!base) return tag;
+    if (base.includes("[CONTA_FIXA:")) return base;
+    return `${base} ${tag}`;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -41,6 +83,7 @@ export default function LancarPage() {
     try {
       const payload = {
         ...form,
+        observacao: buildObservacao(form.observacao, contaFixaId),
         valor: Number(form.valor),
         parcela_total: form.parcela_total ? Number(form.parcela_total) : null,
         parcela_numero: form.parcela_numero ? Number(form.parcela_numero) : null
@@ -59,6 +102,7 @@ export default function LancarPage() {
 
       setMessage("Lancamento salvo com sucesso.");
       setForm(initialState);
+      setContaFixaId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado");
     } finally {
@@ -91,13 +135,45 @@ export default function LancarPage() {
             <select
               className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
               value={form.tipo}
-              onChange={(event) => setForm((prev) => ({ ...prev, tipo: event.target.value }))}
+              onChange={(event) => {
+                const nextTipo = event.target.value;
+                if (nextTipo === "receita") {
+                  setContaFixaId("");
+                  setForm((prev) => ({
+                    ...prev,
+                    tipo: nextTipo,
+                    atribuicao: "WALKER",
+                    quem_pagou: "WALKER",
+                    categoria: prev.categoria || "RECEITAS"
+                  }));
+                  return;
+                }
+                setForm((prev) => ({ ...prev, tipo: nextTipo }));
+              }}
             >
               <option value="despesa">Despesa</option>
               <option value="receita">Receita</option>
             </select>
           </label>
         </div>
+
+        {form.tipo === "despesa" ? (
+          <label className="text-sm">
+            Conta fixa (opcional)
+            <select
+              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+              value={contaFixaId}
+              onChange={(event) => applyContaFixa(event.target.value)}
+            >
+              <option value="">Selecione uma conta fixa...</option>
+              {contasFixas.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
 
         <label className="text-sm">
           Descricao
@@ -107,6 +183,7 @@ export default function LancarPage() {
             onChange={(event) => setForm((prev) => ({ ...prev, descricao: event.target.value }))}
             required
             placeholder="Ex.: Condominio"
+            disabled={Boolean(contaFixaId)}
           />
         </label>
 
@@ -138,73 +215,77 @@ export default function LancarPage() {
           </label>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="text-sm">
-            Atribuicao
-            <select
-              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-              value={form.atribuicao}
-              onChange={(event) => setForm((prev) => ({ ...prev, atribuicao: event.target.value }))}
-            >
-              {atribuicoes.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
+        {form.tipo === "despesa" ? (
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="text-sm">
+              Atribuicao
+              <select
+                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                value={form.atribuicao}
+                onChange={(event) => setForm((prev) => ({ ...prev, atribuicao: event.target.value }))}
+              >
+                {atribuicoes.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label className="text-sm">
-            Metodo
-            <select
-              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-              value={form.metodo}
-              onChange={(event) => setForm((prev) => ({ ...prev, metodo: event.target.value }))}
-            >
-              {metodos.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="text-sm">
+              Metodo
+              <select
+                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                value={form.metodo}
+                onChange={(event) => setForm((prev) => ({ ...prev, metodo: event.target.value }))}
+              >
+                {metodos.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label className="text-sm">
-            Quem pagou
-            <select
-              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-              value={form.quem_pagou}
-              onChange={(event) => setForm((prev) => ({ ...prev, quem_pagou: event.target.value }))}
-            >
-              <option value="WALKER">WALKER</option>
-              <option value="DEA">DEA</option>
-            </select>
-          </label>
-        </div>
+            <label className="text-sm">
+              Quem pagou
+              <select
+                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                value={form.quem_pagou}
+                onChange={(event) => setForm((prev) => ({ ...prev, quem_pagou: event.target.value }))}
+              >
+                <option value="WALKER">WALKER</option>
+                <option value="DEA">DEA</option>
+              </select>
+            </label>
+          </div>
+        ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="text-sm">
-            Parcela total (opcional)
-            <input
-              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-              type="number"
-              min="1"
-              value={form.parcela_total}
-              onChange={(event) => setForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
-            />
-          </label>
+        {form.tipo === "despesa" ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="text-sm">
+              Parcela total (opcional)
+              <input
+                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                type="number"
+                min="1"
+                value={form.parcela_total}
+                onChange={(event) => setForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
+              />
+            </label>
 
-          <label className="text-sm">
-            Numero da parcela (opcional)
-            <input
-              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-              type="number"
-              min="1"
-              value={form.parcela_numero}
-              onChange={(event) => setForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
-            />
-          </label>
-        </div>
+            <label className="text-sm">
+              Numero da parcela (opcional)
+              <input
+                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                type="number"
+                min="1"
+                value={form.parcela_numero}
+                onChange={(event) => setForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
+              />
+            </label>
+          </div>
+        ) : null}
 
         <label className="text-sm">
           Observacao

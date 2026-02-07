@@ -1,7 +1,7 @@
 import { AppError } from "@/lib/errors";
 import { getConfig } from "@/lib/config";
 import { getSheetsApi } from "@/lib/sheets/auth";
-import { detectMonthBlocks } from "@/lib/sheets/legacyImporter";
+import { detectMonthBlocks, legacyImportKey, type LegacyMonthBlock } from "@/lib/sheets/legacyImporter";
 import { getSheetHeaders, SHEET_SCHEMA, type SheetName } from "@/lib/sheets/schema";
 import type { CalendarioAnual, ContaFixa, Lancamento, ReceitasRegra } from "@/lib/types";
 import { parseBoolean, parseNumber } from "@/lib/utils";
@@ -20,6 +20,23 @@ function colToLetter(col: number): string {
 function cleanCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   return String(value);
+}
+
+function normalizeText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
+function parseYmd(value: string): { year: number; month: number; day: number } | null {
+  const [yearRaw, monthRaw, dayRaw] = value.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  return { year, month, day };
 }
 
 function normalizeRow<T extends object>(headers: string[], row: T): string[] {
@@ -55,6 +72,50 @@ async function getSpreadsheetMeta() {
   return response.data;
 }
 
+type MergeRange = {
+  startRowIndex: number;
+  endRowIndex: number;
+  startColumnIndex: number;
+  endColumnIndex: number;
+};
+
+async function getSheetMerges(sheetName: string): Promise<MergeRange[]> {
+  const config = getConfig();
+  const sheetsApi = getSheetsApi();
+
+  const response = await sheetsApi.spreadsheets.get({
+    spreadsheetId: config.googleSpreadsheetId,
+    fields: "sheets(properties(title),merges)"
+  });
+
+  const sheet = response.data.sheets?.find((item) => item.properties?.title === sheetName);
+  return (sheet?.merges ?? []) as MergeRange[];
+}
+
+function findMerge(merges: MergeRange[], row: number, col: number): MergeRange | null {
+  const rowIndex = row - 1;
+  const colIndex = col - 1;
+  return (
+    merges.find(
+      (merge) =>
+        rowIndex >= merge.startRowIndex &&
+        rowIndex < merge.endRowIndex &&
+        colIndex >= merge.startColumnIndex &&
+        colIndex < merge.endColumnIndex
+    ) ?? null
+  );
+}
+
+function isMergedNonTopLeft(merge: MergeRange | null, row: number, col: number): boolean {
+  if (!merge) return false;
+  return merge.startRowIndex !== row - 1 || merge.startColumnIndex !== col - 1;
+}
+
+function resolveMergedRow(merge: MergeRange | null): number | null {
+  if (!merge) return null;
+  return merge.startRowIndex + 1;
+}
+
 async function getSheetIdByName(sheetName: string): Promise<number> {
   const meta = await getSpreadsheetMeta();
   const match = meta.sheets?.find((sheet) => sheet.properties?.title === sheetName);
@@ -72,6 +133,10 @@ export async function listSheetNames(): Promise<string[]> {
       ?.map((sheet) => sheet.properties?.title)
       .filter((title): title is string => Boolean(title)) ?? []
   );
+}
+
+function monthBlocksForYear(firstRow: string[]): LegacyMonthBlock[] {
+  return detectMonthBlocks(firstRow);
 }
 
 export async function readLegacyMonthRealBalance(
@@ -105,6 +170,233 @@ export async function readLegacyMonthRealBalance(
   const saldoCarteira = parseNumber(values[1]?.[0], 0);
 
   return { saldoBanco, saldoCarteira };
+}
+
+export async function appendLegacyLancamento(
+  lancamento: Lancamento
+): Promise<{
+  status: "ok" | "skipped" | "no_space" | "error";
+  message?: string;
+  sheet?: string;
+  range?: string;
+  row?: number;
+  month?: number;
+}> {
+  const parsed = parseYmd(lancamento.data);
+  if (!parsed) {
+    return { status: "skipped", message: "Data invalida para espelhar no layout legado." };
+  }
+  const { year, month, day } = parsed;
+
+  const yearSheet = String(year);
+  const sheetNames = await listSheetNames();
+  if (!sheetNames.includes(yearSheet)) {
+    return { status: "skipped", message: `Aba ${yearSheet} nao encontrada para espelhamento.` };
+  }
+
+  const firstRowOnly = await readSheetRaw(yearSheet, "A1:ZZ1");
+  const monthBlocks = monthBlocksForYear(firstRowOnly[0] ?? []);
+  const monthBlock = monthBlocks.find((item) => item.month === month);
+  if (!monthBlock) {
+    return { status: "skipped", message: `Mes ${month} nao encontrado em ${yearSheet}.` };
+  }
+
+  const startCol = monthBlock.startCol;
+  const startRow = lancamento.tipo === "receita" ? 11 : 17;
+  const endRow = lancamento.tipo === "receita" ? 30 : 300;
+  const scan = await readSheetRaw(yearSheet, `A${startRow}:ZZ${endRow}`);
+  const merges = await getSheetMerges(yearSheet);
+
+  let targetRow: number | null = null;
+  const desiredDesc = normalizeText(lancamento.descricao);
+
+  // Primeiro: receitas podem sobrescrever a linha pela descricao (mesmo com valor preenchido).
+  if (lancamento.tipo === "receita") {
+    for (let idx = 0; idx < scan.length; idx += 1) {
+      const row = scan[idx] ?? [];
+      const desc = normalizeText(row[startCol - 1] ?? "");
+      const rowNumber = startRow + idx;
+      const merge = findMerge(merges, rowNumber, startCol);
+      if (merge) {
+        continue;
+      }
+      if (desc && desc === desiredDesc) {
+        targetRow = rowNumber;
+        break;
+      }
+    }
+  }
+
+  // Segundo: tenta casar descricao existente com valor vazio (layout legado preenchido manualmente).
+  for (let idx = 0; idx < scan.length; idx += 1) {
+    const row = scan[idx] ?? [];
+    const desc = normalizeText(row[startCol - 1] ?? "");
+    const valorCell = (row[startCol] ?? "").trim();
+    const rowNumber = startRow + idx;
+    const merge = findMerge(merges, rowNumber, startCol);
+    // Ignora qualquer linha mesclada (incluindo topo), conforme preferencia do layout legado.
+    if (merge) {
+      continue;
+    }
+    if (desc && desc === desiredDesc && !valorCell) {
+      targetRow = rowNumber;
+      break;
+    }
+  }
+
+  // Terceiro: primeira linha totalmente vazia no bloco.
+  if (!targetRow) {
+    for (let idx = 0; idx < scan.length; idx += 1) {
+      const cell = scan[idx]?.[startCol - 1]?.trim() ?? "";
+      const rowNumber = startRow + idx;
+      const merge = findMerge(merges, rowNumber, startCol);
+      if (merge) {
+        continue;
+      }
+      if (!cell) {
+        targetRow = rowNumber;
+        break;
+      }
+    }
+  }
+
+  if (!targetRow) {
+    return { status: "no_space", message: "Nao ha linhas livres no bloco legado para este mes." };
+  }
+
+  const sheetsApi = getSheetsApi();
+  const endCol = startCol + (lancamento.tipo === "receita" ? 2 : 4);
+  const startLetter = colToLetter(startCol);
+  const endLetter = colToLetter(endCol);
+  const range = `${yearSheet}!${startLetter}${targetRow}:${endLetter}${targetRow}`;
+
+  const values =
+    lancamento.tipo === "receita"
+      ? [[lancamento.descricao, lancamento.valor, day]]
+      : [[lancamento.descricao, lancamento.valor, day, lancamento.atribuicao, lancamento.quem_pagou]];
+
+  try {
+    await sheetsApi.spreadsheets.values.update({
+      spreadsheetId: getConfig().googleSpreadsheetId,
+      range,
+      valueInputOption: "RAW",
+      requestBody: { values }
+    });
+
+    return { status: "ok", sheet: yearSheet, range, row: targetRow, month };
+  } catch (error) {
+    return { status: "error", message: "Falha ao gravar no layout legado." };
+  }
+}
+
+export async function legacyLancamentoExists(lancamento: Lancamento): Promise<boolean> {
+  const parsed = parseYmd(lancamento.data);
+  if (!parsed) return false;
+  const { year, month, day } = parsed;
+
+  const yearSheet = String(year);
+  const sheetNames = await listSheetNames();
+  if (!sheetNames.includes(yearSheet)) {
+    return false;
+  }
+
+  const firstRowOnly = await readSheetRaw(yearSheet, "A1:ZZ1");
+  const monthBlocks = detectMonthBlocks(firstRowOnly[0] ?? []);
+  const monthBlock = monthBlocks.find((item) => item.month === month);
+  if (!monthBlock) {
+    return false;
+  }
+
+  const startCol = monthBlock.startCol;
+  const startRow = lancamento.tipo === "receita" ? 11 : 17;
+  const endRow = lancamento.tipo === "receita" ? 30 : 300;
+  const grid = await readSheetRaw(yearSheet, `A${startRow}:ZZ${endRow}`);
+
+  for (let idx = 0; idx < grid.length; idx += 1) {
+    const row = grid[idx] ?? [];
+    const desc = (row[startCol - 1] ?? "").trim();
+    const valor = parseNumber(row[startCol] ?? "", NaN);
+    const dia = parseNumber(row[startCol + 1] ?? "", NaN);
+    if (!desc) continue;
+    if (desc === lancamento.descricao && Number.isFinite(valor) && Number.isFinite(dia)) {
+      if (valor === lancamento.valor && Math.trunc(dia) === day) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export async function removeLegacyLancamento(
+  lancamento: Lancamento
+): Promise<{ status: "ok" | "skipped" | "not_found" | "error"; message?: string }> {
+  const parsed = parseYmd(lancamento.data);
+  if (!parsed) {
+    return { status: "skipped", message: "Data invalida para remover no legado." };
+  }
+  const { year, month, day } = parsed;
+
+  const yearSheet = String(year);
+  const sheetNames = await listSheetNames();
+  if (!sheetNames.includes(yearSheet)) {
+    return { status: "skipped", message: `Aba ${yearSheet} nao encontrada.` };
+  }
+
+  const firstRowOnly = await readSheetRaw(yearSheet, "A1:ZZ1");
+  const monthBlocks = detectMonthBlocks(firstRowOnly[0] ?? []);
+  const monthBlock = monthBlocks.find((item) => item.month === month);
+  if (!monthBlock) {
+    return { status: "skipped", message: `Mes ${month} nao encontrado em ${yearSheet}.` };
+  }
+
+  const startCol = monthBlock.startCol;
+  const startRow = lancamento.tipo === "receita" ? 11 : 17;
+  const endRow = lancamento.tipo === "receita" ? 30 : 300;
+  const grid = await readSheetRaw(yearSheet, `A${startRow}:ZZ${endRow}`);
+  const merges = await getSheetMerges(yearSheet);
+
+  let targetRow: number | null = null;
+  for (let idx = 0; idx < grid.length; idx += 1) {
+    const row = grid[idx] ?? [];
+    const desc = (row[startCol - 1] ?? "").trim();
+    const valor = parseNumber(row[startCol] ?? "", NaN);
+    const dia = parseNumber(row[startCol + 1] ?? "", NaN);
+    if (!desc) continue;
+    const rowNumber = startRow + idx;
+    const merge = findMerge(merges, rowNumber, startCol);
+    if (merge) {
+      continue;
+    }
+    if (desc === lancamento.descricao && Number.isFinite(valor) && Number.isFinite(dia)) {
+      if (valor === lancamento.valor && Math.trunc(dia) === day) {
+        targetRow = rowNumber;
+        break;
+      }
+    }
+  }
+
+  if (!targetRow) {
+    return { status: "not_found", message: "Lancamento nao encontrado no legado." };
+  }
+
+  const sheetsApi = getSheetsApi();
+  const endCol = startCol + (lancamento.tipo === "receita" ? 2 : 4);
+  const startLetter = colToLetter(startCol);
+  const endLetter = colToLetter(endCol);
+  const emptyValues =
+    lancamento.tipo === "receita"
+      ? [["", "", ""]]
+      : [["", "", "", "", ""]];
+
+  await sheetsApi.spreadsheets.values.update({
+    spreadsheetId: getConfig().googleSpreadsheetId,
+    range: `${yearSheet}!${startLetter}${targetRow}:${endLetter}${targetRow}`,
+    valueInputOption: "RAW",
+    requestBody: { values: emptyValues }
+  });
+
+  return { status: "ok" };
 }
 
 export async function ensureSchemaSheets(): Promise<void> {
@@ -146,7 +438,7 @@ export async function ensureSchemaSheets(): Promise<void> {
   );
 }
 
-export async function readSheetRaw(sheetName: string, range = "A1:ZZ2000"): Promise<string[][]> {
+export async function readSheetRaw(sheetName: string, range = "A1:ZZ100000"): Promise<string[][]> {
   const config = getConfig();
   const sheetsApi = getSheetsApi();
 
@@ -187,7 +479,23 @@ export async function appendRows<T extends object>(sheetName: SheetName, rows: T
   const config = getConfig();
   const sheetsApi = getSheetsApi();
   const headers = getSheetHeaders(sheetName);
-  const values = rows.map((row) => normalizeRow(headers, row));
+  let rowsToAppend = rows;
+
+  if (sheetName === "LANCAMENTOS") {
+    const existing = await readLancamentos();
+    const existingLegacy = new Set<string>();
+    for (const item of existing) {
+      const legacyKey = legacyImportKey(item);
+      if (legacyKey) existingLegacy.add(legacyKey);
+    }
+    rowsToAppend = rows.filter((row) => {
+      const legacyKey = legacyImportKey(row as unknown as Lancamento);
+      return legacyKey ? !existingLegacy.has(legacyKey) : true;
+    });
+    if (rowsToAppend.length === 0) return;
+  }
+
+  const values = rowsToAppend.map((row) => normalizeRow(headers, row));
 
   await sheetsApi.spreadsheets.values.append({
     spreadsheetId: config.googleSpreadsheetId,
@@ -302,6 +610,7 @@ function assertValue<T>(value: T | undefined, message: string): T {
 
 export async function readLancamentos(): Promise<Lancamento[]> {
   const rows = await readRows("LANCAMENTOS");
+  const seenLegacy = new Set<string>();
 
   return rows
     .map((row) => {
@@ -325,7 +634,14 @@ export async function readLancamentos(): Promise<Lancamento[]> {
         quem_pagou: (row.quem_pagou as Lancamento["quem_pagou"]) || "WALKER"
       } satisfies Lancamento;
     })
-    .filter((item): item is Lancamento => Boolean(item));
+    .filter((item): item is Lancamento => Boolean(item))
+    .filter((item) => {
+      const legacyKey = legacyImportKey(item);
+      if (!legacyKey) return true;
+      if (seenLegacy.has(legacyKey)) return false;
+      seenLegacy.add(legacyKey);
+      return true;
+    });
 }
 
 export async function readContasFixas(): Promise<ContaFixa[]> {

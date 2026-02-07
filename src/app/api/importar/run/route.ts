@@ -1,6 +1,6 @@
 import { AppError } from "@/lib/errors";
 import { jsonError, jsonOk } from "@/lib/http";
-import { detectMonthBlocks, previewLegacyImport } from "@/lib/sheets/legacyImporter";
+import { detectMonthBlocks, legacyImportKey, previewLegacyImport } from "@/lib/sheets/legacyImporter";
 import { appendRows, ensureSchemaSheets, readLancamentos, readSheetRaw } from "@/lib/sheets/sheetsClient";
 import { importRunSchema } from "@/lib/validation/schemas";
 
@@ -76,6 +76,7 @@ export async function POST(request: Request) {
 
     const existingByMonth = new Map<number, number>();
     const existingByMonthTipo = new Map<string, number>();
+    const existingLegacyKeys = new Set<string>();
     for (const item of lancamentos) {
       const [yearRaw, monthRaw] = item.data.split("-");
       const year = Number(yearRaw);
@@ -84,6 +85,10 @@ export async function POST(request: Request) {
       existingByMonth.set(month, (existingByMonth.get(month) ?? 0) + 1);
       const key = `${month}-${item.tipo}`;
       existingByMonthTipo.set(key, (existingByMonthTipo.get(key) ?? 0) + 1);
+      const legacyKey = legacyImportKey(item);
+      if (legacyKey) {
+        existingLegacyKeys.add(legacyKey);
+      }
     }
 
     const monthRuns = monthStartCols.map((startCol) => {
@@ -100,6 +105,12 @@ export async function POST(request: Request) {
         defaults: parsed.defaults
       });
 
+      const rowsWithoutDuplicates = preview.rows.filter((row) => {
+        const legacyKey = legacyImportKey(row);
+        return legacyKey ? !existingLegacyKeys.has(legacyKey) : true;
+      });
+      const duplicateCount = preview.count - rowsWithoutDuplicates.length;
+
       const existingCount = existingByMonth.get(preview.month) ?? 0;
       const existingCountTipo = existingByMonthTipo.get(`${preview.month}-${parsed.tipo}`) ?? 0;
       const alreadyImported = existingCount > 0;
@@ -111,12 +122,13 @@ export async function POST(request: Request) {
         monthLabel: MONTH_LABELS[preview.month - 1] ?? String(preview.month),
         startCol,
         count: preview.count,
+        duplicateCount,
         existingCount,
         existingCountTipo,
         alreadyImported,
         alreadyImportedTipo,
         skipped,
-        rows: skipped ? [] : preview.rows
+        rows: skipped ? [] : rowsWithoutDuplicates
       };
     });
 
@@ -132,6 +144,7 @@ export async function POST(request: Request) {
       monthLabel: item.monthLabel,
       startCol: item.startCol,
       previewCount: item.count,
+      duplicateCount: item.duplicateCount,
       existingCount: item.existingCount,
       existingCountTipo: item.existingCountTipo,
       imported: parsed.dryRun ? 0 : item.rows.length,

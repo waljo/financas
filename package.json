@@ -12,7 +12,11 @@
     "setup:google": "tsx scripts/setup-google.ts",
     "alertas": "tsx scripts/alertas.ts",
     "importar:cli": "tsx scripts/importar.ts",
-    "bootstrap:sheets": "tsx scripts/bootstrap-sheets.ts"
+    "bootstrap:sheets": "tsx scripts/bootstrap-sheets.ts",
+    "limpar:duplicatas": "tsx scripts/limpar-duplicatas.ts",
+    "reimportar:tudo": "tsx scripts/reimportar-tudo.ts",
+    "backfill:legado": "tsx scripts/backfill-legado-status.ts",
+    "realinhar:lancamentos": "tsx scripts/realinhar-lancamentos.ts"
   },
   "dependencies": {
     "date-fns": "^4.1.0",

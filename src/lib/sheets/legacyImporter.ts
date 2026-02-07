@@ -145,9 +145,10 @@ export function previewLegacyImport(input: LegacyImportPreviewInput): {
       ? (quemRaw as Lancamento["quem_pagou"])
       : input.defaults?.quem_pagou ?? "WALKER";
 
+    const date = `${input.year}-${String(month).padStart(2, "0")}-${String(diaAjustado).padStart(2, "0")}`;
     const lancamento: Lancamento = {
       id: randomUUID(),
-      data: `${input.year}-${String(month).padStart(2, "0")}-${String(diaAjustado).padStart(2, "0")}`,
+      data: date,
       tipo,
       descricao,
       categoria: categoriaRaw || input.defaults?.categoria || (tipo === "receita" ? "RECEITAS" : descricao),
@@ -171,4 +172,21 @@ export function previewLegacyImport(input: LegacyImportPreviewInput): {
     sample: rows.slice(0, 10),
     rows
   };
+}
+
+function extractLegacyLine(observacao: string | undefined): number | null {
+  if (!observacao) return null;
+  const match = observacao.match(/Importado da planilha legada \\(linha (\\d+)\\)/i);
+  if (!match) return null;
+  const line = Number(match[1]);
+  return Number.isFinite(line) ? line : null;
+}
+
+export function legacyImportKey(
+  lancamento: Pick<Lancamento, "data" | "tipo" | "descricao" | "valor" | "observacao">
+): string | null {
+  const line = extractLegacyLine(lancamento.observacao);
+  if (!line) return null;
+  const descricao = lancamento.descricao?.trim().toUpperCase() ?? "";
+  return `${lancamento.data}|${lancamento.tipo}|${descricao}|${lancamento.valor}|${line}`;
 }

@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "@/lib/errors";
-import { appendRow, deleteRowById, readLancamentos, updateRowById } from "@/lib/sheets/sheetsClient";
+import {
+  appendLegacyLancamento,
+  appendRow,
+  deleteRowById,
+  readLancamentos,
+  removeLegacyLancamento,
+  ensureSchemaSheets,
+  updateRowById
+} from "@/lib/sheets/sheetsClient";
 import { jsonError, jsonOk } from "@/lib/http";
 import { lancamentoSchema } from "@/lib/validation/schemas";
 import { toIsoNow } from "@/lib/utils";
@@ -37,9 +45,32 @@ export async function POST(request: Request) {
       updated_at: now
     };
 
+    await ensureSchemaSheets();
     await appendRow("LANCAMENTOS", row);
+    const legacy = await appendLegacyLancamento(row);
 
-    return jsonOk({ data: row }, 201);
+    if (legacy?.status) {
+      const status = legacy.status.toUpperCase();
+      const tag = `[LEGADO:${status}]`;
+      const detail = legacy.message ? `(${legacy.message})` : "";
+      const where = legacy.range ? `(range ${legacy.range})` : "";
+      const tagFull = [tag, detail, where].filter(Boolean).join(" ");
+      const observacao = row.observacao?.includes("[LEGADO:")
+        ? row.observacao
+        : row.observacao
+          ? `${row.observacao} ${tagFull}`
+          : tagFull;
+      if (observacao !== row.observacao) {
+        await updateRowById("LANCAMENTOS", row.id, {
+          ...row,
+          observacao,
+          updated_at: toIsoNow()
+        });
+        row.observacao = observacao;
+      }
+    }
+
+    return jsonOk({ data: row, legacy }, 201);
   } catch (error) {
     return jsonError(error);
   }
@@ -60,6 +91,7 @@ export async function PUT(request: Request) {
       observacao: parsed.observacao ?? ""
     };
 
+    await ensureSchemaSheets();
     await updateRowById("LANCAMENTOS", parsed.id, row);
     return jsonOk({ data: row });
   } catch (error) {
@@ -75,8 +107,11 @@ export async function DELETE(request: Request) {
       throw new AppError("id obrigatorio para exclusao", 400, "MISSING_ID");
     }
 
+    const lancamentos = await readLancamentos();
+    const target = lancamentos.find((item) => item.id === id);
     await deleteRowById("LANCAMENTOS", id);
-    return jsonOk({ ok: true, id });
+    const legacy = target ? await removeLegacyLancamento(target) : { status: "skipped" as const };
+    return jsonOk({ ok: true, id, legacy });
   } catch (error) {
     return jsonError(error);
   }

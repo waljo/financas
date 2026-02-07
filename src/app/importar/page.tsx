@@ -15,6 +15,7 @@ interface PreviewMonthItem {
   monthLabel: string;
   startCol: number;
   count: number;
+  duplicateCount: number;
   existingCount: number;
   existingCountTipo: number;
   alreadyImported: boolean;
@@ -45,6 +46,7 @@ interface RunMonthResult {
   monthLabel: string;
   startCol: number;
   previewCount: number;
+  duplicateCount: number;
   existingCount: number;
   existingCountTipo: number;
   imported: number;
@@ -94,6 +96,11 @@ export default function ImportarPage() {
     () => metadata?.legacyCandidates.find((item) => item.sheetName === sourceSheet)?.monthBlocks ?? [],
     [metadata, sourceSheet]
   );
+  const baseStartCol = useMemo(() => {
+    const january = activeSheetMonths.find((item) => item.month === 1);
+    if (january) return january.startCol;
+    return activeSheetMonths[0]?.startCol ?? null;
+  }, [activeSheetMonths]);
 
   const inferredYear = useMemo(() => {
     const parsed = Number(sourceSheet);
@@ -157,6 +164,17 @@ export default function ImportarPage() {
     setQuemPagouCol("6");
     setDefaultsAtribuicao("AMBOS");
     setDefaultsQuemPagou("WALKER");
+  }
+
+  function applyAutoMapping() {
+    if (!baseStartCol) {
+      return;
+    }
+    setDescricaoCol(String(baseStartCol));
+    setValorCol(String(baseStartCol + 1));
+    setDiaCol(String(baseStartCol + 2));
+    setAtribuicaoCol(String(baseStartCol + 3));
+    setQuemPagouCol(String(baseStartCol + 4));
   }
 
   function toggleMonth(startCol: number) {
@@ -303,6 +321,7 @@ export default function ImportarPage() {
                 const nextSheet = event.target.value;
                 setSourceSheet(nextSheet);
                 setInitialMonthsFromSheet(nextSheet, metadata);
+                setTimeout(() => applyAutoMapping(), 0);
                 setPreview(null);
                 setRunSummary(null);
               }}
@@ -331,6 +350,9 @@ export default function ImportarPage() {
         <div className="rounded-lg bg-sand p-3 text-sm">
           <p>
             <strong>Ano inferido:</strong> {inferredYear ?? "indisponivel"}
+          </p>
+          <p>
+            <strong>Coluna base (jan):</strong> {baseStartCol ?? "indisponivel"}
           </p>
           <p>
             <strong>Meses detectados:</strong>{" "}
@@ -396,6 +418,20 @@ export default function ImportarPage() {
 
       <section className="space-y-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Passos 2 e 3 - Range e mapeamento</h2>
+
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <button
+            type="button"
+            className="rounded border border-ink/20 px-3 py-1"
+            onClick={applyAutoMapping}
+            disabled={!baseStartCol}
+          >
+            Auto-mapear colunas (bloco de janeiro)
+          </button>
+          <span className="text-ink/70">
+            Para 2021, janeiro comeca na coluna A. Para 2022+, janeiro comeca na coluna B.
+          </span>
+        </div>
 
         <div className="grid gap-3 md:grid-cols-4">
           <label className="text-sm">
@@ -544,6 +580,11 @@ export default function ImportarPage() {
                   sistema (total): {monthItem.existingCount} | ja no sistema ({preview.tipo}):{" "}
                   {monthItem.existingCountTipo}
                 </p>
+                {monthItem.duplicateCount > 0 ? (
+                  <p className="text-amber-700">
+                    {monthItem.duplicateCount} linha(s) duplicadas foram ignoradas automaticamente.
+                  </p>
+                ) : null}
                 <p className={monthItem.willSkip ? "text-coral" : "text-pine"}>
                   {monthItem.willSkip
                     ? `Sera pulado (ja importado para ${preview.tipo}).`
@@ -604,6 +645,7 @@ export default function ImportarPage() {
                     <th className="px-2 py-1">Mes</th>
                     <th className="px-2 py-1">Col</th>
                     <th className="px-2 py-1">Preview</th>
+                    <th className="px-2 py-1">Duplicadas</th>
                     <th className="px-2 py-1">Ja existente</th>
                     <th className="px-2 py-1">Importado</th>
                     <th className="px-2 py-1">Status</th>
@@ -615,6 +657,7 @@ export default function ImportarPage() {
                       <td className="px-2 py-1">{item.monthLabel}</td>
                       <td className="px-2 py-1">{item.startCol}</td>
                       <td className="px-2 py-1">{item.previewCount}</td>
+                      <td className="px-2 py-1">{item.duplicateCount}</td>
                       <td className="px-2 py-1">
                         {item.existingCount} (tipo: {item.existingCountTipo})
                       </td>

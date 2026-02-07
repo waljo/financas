@@ -44,6 +44,15 @@ function normalizeRow<T extends object>(headers: string[], row: T): string[] {
   return headers.map((header) => cleanCell(values[header]));
 }
 
+function rowMatchesHeader(row: string[] | undefined, header: string[]): boolean {
+  if (!row) return false;
+  if (row.length < header.length) return false;
+  for (let index = 0; index < header.length; index += 1) {
+    if (cleanCell(row[index]).trim() !== header[index]) return false;
+  }
+  return true;
+}
+
 function toObjectRows(values: string[][]): Record<string, string>[] {
   if (values.length === 0) return [];
   const headers = values[0];
@@ -125,6 +134,10 @@ async function getSheetIdByName(sheetName: string): Promise<number> {
   }
   return sheetId;
 }
+
+const ENSURE_SCHEMA_CACHE_TTL_MS = 5 * 60 * 1000;
+let ensureSchemaCacheUntil = 0;
+let ensureSchemaInFlight: Promise<void> | null = null;
 
 export async function listSheetNames(): Promise<string[]> {
   const meta = await getSpreadsheetMeta();
@@ -400,42 +413,72 @@ export async function removeLegacyLancamento(
 }
 
 export async function ensureSchemaSheets(): Promise<void> {
-  const config = getConfig();
-  const sheetsApi = getSheetsApi();
-  const sheetNames = await listSheetNames();
-
-  const missing = Object.keys(SHEET_SCHEMA).filter((name) => !sheetNames.includes(name));
-
-  if (missing.length > 0) {
-    await sheetsApi.spreadsheets.batchUpdate({
-      spreadsheetId: config.googleSpreadsheetId,
-      requestBody: {
-        requests: missing.map((name) => ({
-          addSheet: {
-            properties: {
-              title: name
-            }
-          }
-        }))
-      }
-    });
+  const now = Date.now();
+  if (ensureSchemaCacheUntil > now) {
+    return;
+  }
+  if (ensureSchemaInFlight) {
+    return ensureSchemaInFlight;
   }
 
-  await Promise.all(
-    (Object.keys(SHEET_SCHEMA) as SheetName[]).map(async (sheetName) => {
-      const headers = getSheetHeaders(sheetName);
-      const endCol = colToLetter(headers.length);
+  ensureSchemaInFlight = (async () => {
+    const config = getConfig();
+    const sheetsApi = getSheetsApi();
+    const expectedSheets = Object.keys(SHEET_SCHEMA) as SheetName[];
+    const sheetNames = await listSheetNames();
 
-      await sheetsApi.spreadsheets.values.update({
+    const missing = expectedSheets.filter((name) => !sheetNames.includes(name));
+    if (missing.length > 0) {
+      await sheetsApi.spreadsheets.batchUpdate({
         spreadsheetId: config.googleSpreadsheetId,
-        range: `${sheetName}!A1:${endCol}1`,
-        valueInputOption: "RAW",
         requestBody: {
-          values: [headers]
+          requests: missing.map((name) => ({
+            addSheet: {
+              properties: {
+                title: name
+              }
+            }
+          }))
         }
       });
-    })
-  );
+    }
+
+    const headerChecks = await Promise.all(
+      expectedSheets.map(async (sheetName) => {
+        const headers = getSheetHeaders(sheetName);
+        const endCol = colToLetter(headers.length);
+        const values = await readSheetRaw(sheetName, `A1:${endCol}1`);
+        const currentHeader = values[0];
+        const shouldUpdate = !rowMatchesHeader(currentHeader, headers);
+        return {
+          sheetName,
+          headers,
+          endCol,
+          shouldUpdate
+        };
+      })
+    );
+
+    const updates = headerChecks.filter((item) => item.shouldUpdate);
+    if (updates.length > 0) {
+      await sheetsApi.spreadsheets.values.batchUpdate({
+        spreadsheetId: config.googleSpreadsheetId,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: updates.map((item) => ({
+            range: `${item.sheetName}!A1:${item.endCol}1`,
+            values: [item.headers]
+          }))
+        }
+      });
+    }
+
+    ensureSchemaCacheUntil = Date.now() + ENSURE_SCHEMA_CACHE_TTL_MS;
+  })().finally(() => {
+    ensureSchemaInFlight = null;
+  });
+
+  return ensureSchemaInFlight;
 }
 
 export async function readSheetRaw(sheetName: string, range = "A1:ZZ100000"): Promise<string[][]> {

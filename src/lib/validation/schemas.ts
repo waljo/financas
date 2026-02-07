@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { ATRIBUICOES, METODOS, PESSOA_PAGADORA, TIPO_LANCAMENTO } from "@/lib/types";
+import {
+  ATRIBUICOES,
+  BANCOS_CARTAO,
+  METODOS,
+  ORIGENS_CARTAO_MOVIMENTO,
+  PESSOA_PAGADORA,
+  STATUS_CARTAO_MOVIMENTO,
+  TIPO_LANCAMENTO,
+  TITULARES_CARTAO
+} from "@/lib/types";
 
 const nullableNumber = z.union([z.number(), z.string(), z.null()]).transform((value) => {
   if (value === null || value === "") return null;
@@ -90,4 +99,100 @@ export const importPreviewSchema = z.object({
 
 export const importRunSchema = importPreviewSchema.extend({
   dryRun: z.coerce.boolean().optional().default(false)
+});
+
+export const cartaoCreditoSchema = z.object({
+  id: z.string().uuid().optional(),
+  nome: z.string().min(1),
+  banco: z.enum(BANCOS_CARTAO),
+  titular: z.enum(TITULARES_CARTAO),
+  final_cartao: z.string().optional().default(""),
+  padrao_atribuicao: z.enum(ATRIBUICOES).default("AMBOS"),
+  ativo: z.coerce.boolean().default(true)
+});
+
+const cartaoAlocacaoInputSchema = z.object({
+  id: z.string().uuid().optional(),
+  atribuicao: z.enum(ATRIBUICOES),
+  valor: z.coerce.number()
+});
+
+export const cartaoMovimentoSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    cartao_id: z.string().uuid(),
+    data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use formato YYYY-MM-DD"),
+    descricao: z.string().min(1),
+    valor: z.coerce.number(),
+    parcela_total: nullableNumber.optional().default(null),
+    parcela_numero: nullableNumber.optional().default(null),
+    tx_key: z.string().optional(),
+    origem: z.enum(ORIGENS_CARTAO_MOVIMENTO).default("manual"),
+    status: z.enum(STATUS_CARTAO_MOVIMENTO).default("pendente"),
+    mes_ref: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    observacao: z.string().optional().default(""),
+    alocacoes: z.array(cartaoAlocacaoInputSchema).min(1)
+  })
+  .superRefine((data, ctx) => {
+    if (!Number.isFinite(data.valor) || data.valor <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Valor da compra precisa ser maior que zero",
+        path: ["valor"]
+      });
+      return;
+    }
+
+    let totalAlocacao = 0;
+    data.alocacoes.forEach((item, index) => {
+      if (!Number.isFinite(item.valor) || item.valor <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Valor da alocacao precisa ser maior que zero",
+          path: ["alocacoes", index, "valor"]
+        });
+      } else {
+        totalAlocacao += item.valor;
+      }
+    });
+
+    const diff = Math.abs(totalAlocacao - data.valor);
+    if (diff > 0.01) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Soma das alocacoes deve bater com o valor total da compra",
+        path: ["alocacoes"]
+      });
+    }
+  });
+
+export const cartaoImportLineSchema = z.object({
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use formato YYYY-MM-DD"),
+  descricao: z.string().min(1),
+  valor: z.coerce.number().positive(),
+  parcela_total: nullableNumber.optional().default(null),
+  parcela_numero: nullableNumber.optional().default(null),
+  final_cartao: z.string().optional().default(""),
+  observacao: z.string().optional().default("")
+});
+
+export const cartaoImportPreviewSchema = z.object({
+  cartao_id: z.string().uuid(),
+  mes_ref: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  lines: z.array(cartaoImportLineSchema).min(1)
+});
+
+export const cartaoImportRunSchema = cartaoImportPreviewSchema.extend({
+  dryRun: z.coerce.boolean().optional().default(false)
+});
+
+export const cartaoTotalizadoresQuerySchema = z.object({
+  mes: z.string().regex(/^\d{4}-\d{2}$/),
+  banco: z.enum(BANCOS_CARTAO)
+});
+
+export const cartaoGerarLancamentosSchema = cartaoTotalizadoresQuerySchema.extend({
+  quem_pagou: z.enum(PESSOA_PAGADORA).default("WALKER"),
+  dryRun: z.coerce.boolean().optional().default(false),
+  categoria: z.string().optional().default("CARTAO_CREDITO")
 });

@@ -185,6 +185,51 @@ export async function readLegacyMonthRealBalance(
   return { saldoBanco, saldoCarteira };
 }
 
+export async function writeLegacyMonthRealBalance(params: {
+  month: string;
+  saldoBanco: number;
+  saldoCarteira: number;
+}): Promise<{ sheet: string; rangeBanco: string; rangeCarteira: string }> {
+  const [yearRaw, monthRaw] = params.month.split("-");
+  const year = Number(yearRaw);
+  const monthNumber = Number(monthRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) {
+    throw new AppError("Mes invalido para escrita no legado", 400, "INVALID_MONTH");
+  }
+
+  const yearSheet = String(year);
+  const sheetNames = await listSheetNames();
+  if (!sheetNames.includes(yearSheet)) {
+    throw new AppError(`Aba ${yearSheet} nao encontrada no legado`, 404, "LEGACY_YEAR_NOT_FOUND");
+  }
+
+  const firstRowOnly = await readSheetRaw(yearSheet, "A1:ZZ1");
+  const monthBlocks = detectMonthBlocks(firstRowOnly[0] ?? []);
+  const monthBlock = monthBlocks.find((item) => item.month === monthNumber);
+  if (!monthBlock) {
+    throw new AppError(`Mes ${monthNumber} nao encontrado em ${yearSheet}`, 404, "LEGACY_MONTH_NOT_FOUND");
+  }
+
+  const valueCol = monthBlock.startCol + 1;
+  const col = colToLetter(valueCol);
+  const rangeBanco = `${yearSheet}!${col}7`;
+  const rangeCarteira = `${yearSheet}!${col}8`;
+  const sheetsApi = getSheetsApi();
+
+  await sheetsApi.spreadsheets.values.batchUpdate({
+    spreadsheetId: getConfig().googleSpreadsheetId,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        { range: rangeBanco, values: [[params.saldoBanco]] },
+        { range: rangeCarteira, values: [[params.saldoCarteira]] }
+      ]
+    }
+  });
+
+  return { sheet: yearSheet, rangeBanco, rangeCarteira };
+}
+
 export async function appendLegacyLancamento(
   lancamento: Lancamento
 ): Promise<{

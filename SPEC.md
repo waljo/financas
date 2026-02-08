@@ -112,3 +112,35 @@ Paginas:
 - Multiusuario completo com ACL.
 - Banco relacional secundario.
 - Agendamento cron em producao (fica preparado, execucao manual local inicialmente).
+
+## Processo de Desenvolvimento Assistido por IA
+
+Este projeto utiliza IA (Codex) como ferramenta de apoio ao desenvolvimento,
+seguindo um framework estruturado de prompts versionados.
+
+### Objetivos do uso de IA
+- aumentar consistência de decisões técnicas e de produto
+- garantir aderência ao escopo do MVP
+- manter padrões éticos e legais em funcionalidades financeiras
+- reforçar UX mobile-first em todas as interfaces
+
+### Autoridade de decisão
+Ao utilizar Codex/IA, os seguintes arquivos devem ser considerados como fonte de verdade:
+- `SPEC.md`
+- `prompts/system.md`
+- `prompts/router.md`
+- `docs/legal_guardrails.md`
+
+### Modos especializados
+A IA pode operar sob modos especializados conforme a tarefa:
+- Planejamento Financeiro (decisão, risco, metas)
+- Micro-SaaS (MVP, escopo, métricas)
+- UX Mobile (smartphone-first)
+- Análise de Comportamento (fricção e erro do usuário)
+
+A escolha dos modos segue as regras definidas em `prompts/router.md`.
+
+### Limites
+- O uso de IA não substitui revisão humana
+- A IA não recomenda produtos financeiros
+- A IA não assume responsabilidade técnica ou legal

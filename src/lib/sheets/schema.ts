@@ -36,6 +36,16 @@ export const SHEET_SCHEMA = {
     "observacao",
     "dia_mes"
   ],
+  CATEGORIAS: [
+    "id",
+    "nome",
+    "slug",
+    "ativa",
+    "ordem",
+    "cor",
+    "created_at",
+    "updated_at"
+  ],
   RECEITAS_REGRAS: ["chave", "valor"],
   CARTOES: [
     "id",

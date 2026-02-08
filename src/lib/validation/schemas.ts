@@ -61,8 +61,27 @@ export const calendarioAnualSchema = z.object({
   dia_mes: nullableNumber.optional().default(1)
 });
 
+export const categoriaSchema = z.object({
+  id: z.string().uuid().optional(),
+  nome: z.string().min(1).max(80),
+  ativa: z.coerce.boolean().optional().default(true),
+  ordem: nullableNumber.optional().default(null),
+  cor: z.string().optional().default("")
+});
+
+export const categoriaNormalizeRunSchema = z.object({
+  reativarInativas: z.coerce.boolean().optional().default(true)
+});
+
 export const reportQuerySchema = z.object({
   mes: z.string().regex(/^\d{4}-\d{2}$/)
+});
+
+export const dashboardSaldoSchema = z.object({
+  mes: z.string().regex(/^\d{4}-\d{2}$/),
+  saldoBB: z.coerce.number(),
+  saldoC6: z.coerce.number(),
+  saldoCarteira: z.coerce.number()
 });
 
 const monthStartColsSchema = z

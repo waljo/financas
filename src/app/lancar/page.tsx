@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ContaFixa, Lancamento } from "@/lib/types";
+import { CategoryPicker } from "@/components/CategoryPicker";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -537,16 +538,14 @@ export default function LancarPage() {
           </label>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-sm">
-              Categoria
-              <input
-                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                value={form.categoria}
-                onChange={(event) => setForm((prev) => ({ ...prev, categoria: event.target.value }))}
-                required
-                placeholder={mode === "receita" ? "RECEITAS" : "Moradia, Saude..."}
-              />
-            </label>
+            <CategoryPicker
+              label="Categoria"
+              value={form.categoria}
+              onChange={(value) => setForm((prev) => ({ ...prev, categoria: value }))}
+              required
+              allowCreate
+              placeholder={mode === "receita" ? "RECEITAS" : "Moradia, Saude..."}
+            />
 
             <label className="text-sm">
               Valor

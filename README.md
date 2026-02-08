@@ -114,3 +114,31 @@ Observacao:
 1. Preencher `RECEITAS_REGRAS` com valores Petrobras para melhorar projecao.
 2. Definir cron (GitHub Actions/servidor) para `npm run alertas` diario.
 3. Evoluir CRUD com edicao/exclusao na UI.
+
+## Uso de IA (Codex) e Prompts do Projeto
+
+Este projeto utiliza prompts versionados para garantir:
+- consistência ética e financeira
+- qualidade de UX (mobile-first)
+- decisões de produto alinhadas ao MVP
+
+### Estrutura
+- `prompts/system.md`: persona base (planejador financeiro + orquestrador de produto)
+- `prompts/router.md`: define quais modos usar conforme a tarefa
+- `prompts/modes/`: modos especializados (financeiro, micro-SaaS, UX mobile, comportamento)
+- `prompts/task_templates/`: templates de tarefas (feature, UX review, bugfix)
+- `docs/legal_guardrails.md`: limites éticos e legais obrigatórios
+- `docs/codex_workflow.md`: workflow oficial de uso do Codex
+
+### Regra obrigatória
+Ao usar Codex/IA neste projeto, considerar como autoridade:
+- `prompts/system.md`
+- `prompts/router.md`
+- `docs/legal_guardrails.md`
+- `SPEC.md`
+
+### Prompt padrão recomendado
+Ao iniciar uma tarefa com Codex, usar o padrão definido em:
+`docs/codex_workflow.md`
+
+Isso evita sugestões fora de escopo, problemas legais e inconsistências de UX.

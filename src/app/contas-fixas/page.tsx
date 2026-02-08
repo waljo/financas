@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import type { ContaFixa } from "@/lib/types";
+import { CategoryPicker } from "@/components/CategoryPicker";
 
 const atribuicoes = ["WALKER", "DEA", "AMBOS", "AMBOS_I"];
 
@@ -172,15 +173,13 @@ export default function ContasFixasPage() {
             ))}
           </select>
         </label>
-        <label className="text-sm">
-          Categoria
-          <input
-            className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-            value={form.categoria}
-            onChange={(event) => setForm((prev) => ({ ...prev, categoria: event.target.value }))}
-            required
-          />
-        </label>
+        <CategoryPicker
+          label="Categoria"
+          value={form.categoria}
+          onChange={(value) => setForm((prev) => ({ ...prev, categoria: value }))}
+          required
+          allowCreate
+        />
         <label className="text-sm">
           Avisar dias antes
           <input

@@ -4,6 +4,8 @@ import type {
   ContaFixa,
   DashboardData,
   Lancamento,
+  RelatorioParcelaDetalheItem,
+  RelatorioParcelasDetalhe,
   ProjecaoNoventaDias,
   ReceitasRegra,
   RelatorioMensal
@@ -13,6 +15,10 @@ import { parsePetrobrasRules, projectPetrobrasReceitas } from "@/domain/petrobra
 
 function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 export function filterByMonth(lancamentos: Lancamento[], month: string): Lancamento[] {
@@ -71,17 +77,109 @@ export function computeReceberPagarDEA(lancamentos: Lancamento[]): number {
   return dueToWalker - dueToDea;
 }
 
-export function computeComprometimentoParcelas(lancamentosMes: Lancamento[], receitasMes: number): number {
+export function computeComprometimentoParcelas(
+  lancamentosMes: Lancamento[],
+  receitasMes: number,
+  parcelasExtras = 0
+): number {
   if (receitasMes <= 0) return 0;
 
-  const parcelas = lancamentosMes
+  const parcelasLancamentos = lancamentosMes
     .filter((item) => item.tipo === "despesa" && item.parcela_total && item.parcela_total > 1)
     .reduce((acc, item) => acc + item.valor, 0);
+  const parcelas = parcelasLancamentos + Math.max(parcelasExtras, 0);
 
   return parcelas / receitasMes;
 }
 
-export function computeReport(month: string, lancamentos: Lancamento[]): RelatorioMensal {
+type ComprometimentoDetalheInputItem = {
+  id: string;
+  origem: "lancamentos" | "cartoes";
+  descricao: string;
+  categoria?: string;
+  cartao?: string | null;
+  valorParcela: number;
+  parcelaTotal: number | null;
+  parcelaNumero: number | null;
+  mesReferencia: string;
+};
+
+function addMonthsYm(baseMonth: string, offset: number): string {
+  const [yearRaw, monthRaw] = baseMonth.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return baseMonth;
+  }
+
+  const date = new Date(year, month - 1 + offset, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function futureMonths(baseMonth: string, count: number): string[] {
+  const items: string[] = [];
+  for (let index = 1; index <= count; index += 1) {
+    items.push(addMonthsYm(baseMonth, index));
+  }
+  return items;
+}
+
+export function computeComprometimentoParcelasDetalhe(params: {
+  month: string;
+  receitasMes: number;
+  items: ComprometimentoDetalheInputItem[];
+}): RelatorioParcelasDetalhe {
+  const compras: RelatorioParcelaDetalheItem[] = params.items
+    .filter((item) => item.parcelaTotal !== null && item.parcelaTotal > 1 && item.valorParcela > 0)
+    .map((item) => {
+      const totalParcelas = Math.trunc(item.parcelaTotal ?? 0);
+      const pagasRaw = item.parcelaNumero ?? 1;
+      const pagas = clamp(Math.trunc(pagasRaw), 1, totalParcelas);
+      const restantes = Math.max(totalParcelas - pagas, 0);
+      const valorTotalCompra = roundMoney(item.valorParcela * totalParcelas);
+      const saldoEmAberto = roundMoney(item.valorParcela * restantes);
+      const baseMonth = /^\d{4}-\d{2}$/.test(item.mesReferencia) ? item.mesReferencia : params.month;
+
+      return {
+        id: item.id,
+        origem: item.origem,
+        descricao: item.descricao.trim(),
+        categoria: item.categoria?.trim() || "Sem categoria",
+        cartao: item.cartao ?? null,
+        valorParcela: roundMoney(item.valorParcela),
+        valorTotalCompra,
+        totalParcelas,
+        pagas,
+        restantes,
+        saldoEmAberto,
+        mesesFuturos: futureMonths(baseMonth, restantes),
+        estimado: item.parcelaNumero === null
+      };
+    })
+    .sort((a, b) => {
+      if (b.saldoEmAberto !== a.saldoEmAberto) return b.saldoEmAberto - a.saldoEmAberto;
+      if (b.restantes !== a.restantes) return b.restantes - a.restantes;
+      return b.valorParcela - a.valorParcela;
+    });
+
+  const totalParcelasMes = roundMoney(compras.reduce((acc, item) => acc + item.valorParcela, 0));
+  const totalParceladoEmAberto = roundMoney(compras.reduce((acc, item) => acc + item.saldoEmAberto, 0));
+
+  return {
+    mes: params.month,
+    receitasMes: roundMoney(params.receitasMes),
+    totalParcelasMes,
+    totalParceladoEmAberto,
+    comprometimentoParcelas: params.receitasMes > 0 ? totalParcelasMes / params.receitasMes : 0,
+    compras
+  };
+}
+
+export function computeReport(
+  month: string,
+  lancamentos: Lancamento[],
+  options?: { parcelasExtras?: number }
+): RelatorioMensal {
   const lancamentosMes = filterByMonth(lancamentos, month);
 
   const receitas = lancamentosMes
@@ -104,7 +202,7 @@ export function computeReport(month: string, lancamentos: Lancamento[]): Relator
     totalPorCategoria: totalByCategory(lancamentosMes),
     totalPorAtribuicao: atribuicaoTotals,
     receberPagarDEA: computeReceberPagarDEA(lancamentosMes),
-    comprometimentoParcelas: computeComprometimentoParcelas(lancamentosMes, receitas)
+    comprometimentoParcelas: computeComprometimentoParcelas(lancamentosMes, receitas, options?.parcelasExtras ?? 0)
   };
 }
 

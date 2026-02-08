@@ -67,6 +67,17 @@ export interface ReceitasRegra {
   valor: string;
 }
 
+export interface Categoria {
+  id: string;
+  nome: string;
+  slug: string;
+  ativa: boolean;
+  ordem: number | null;
+  cor: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RelatorioMensal {
   mes: string;
   receitas: number;
@@ -84,6 +95,31 @@ export interface RelatorioMensal {
   };
   receberPagarDEA: number;
   comprometimentoParcelas: number;
+}
+
+export interface RelatorioParcelaDetalheItem {
+  id: string;
+  origem: "lancamentos" | "cartoes";
+  descricao: string;
+  categoria: string;
+  cartao: string | null;
+  valorParcela: number;
+  valorTotalCompra: number;
+  totalParcelas: number;
+  pagas: number;
+  restantes: number;
+  saldoEmAberto: number;
+  mesesFuturos: string[];
+  estimado: boolean;
+}
+
+export interface RelatorioParcelasDetalhe {
+  mes: string;
+  receitasMes: number;
+  totalParcelasMes: number;
+  totalParceladoEmAberto: number;
+  comprometimentoParcelas: number;
+  compras: RelatorioParcelaDetalheItem[];
 }
 
 export interface ProjecaoNoventaDias {

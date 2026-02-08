@@ -15,6 +15,23 @@ import { toIsoNow } from "@/lib/utils";
 
 export const runtime = "nodejs";
 
+type LegacySyncResult = {
+  status: string;
+  message?: string;
+  range?: string;
+};
+
+function withLegacyStatusTag(observacaoBase: string, legacy: LegacySyncResult): string {
+  const clean = observacaoBase
+    .replace(/\s*\[LEGADO:[A-Z_]+\](?:\s*\([^)]+\))?(?:\s*\(range [^)]+\))?/g, "")
+    .trim();
+  const tag = `[LEGADO:${legacy.status.toUpperCase()}]`;
+  const detail = legacy.message ? `(${legacy.message})` : "";
+  const where = legacy.range ? `(range ${legacy.range})` : "";
+  const suffix = [tag, detail, where].filter(Boolean).join(" ");
+  return clean ? `${clean} ${suffix}` : suffix;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -50,23 +67,16 @@ export async function POST(request: Request) {
     const legacy = await appendLegacyLancamento(row);
 
     if (legacy?.status) {
-      const status = legacy.status.toUpperCase();
-      const tag = `[LEGADO:${status}]`;
-      const detail = legacy.message ? `(${legacy.message})` : "";
-      const where = legacy.range ? `(range ${legacy.range})` : "";
-      const tagFull = [tag, detail, where].filter(Boolean).join(" ");
-      const observacao = row.observacao?.includes("[LEGADO:")
-        ? row.observacao
-        : row.observacao
-          ? `${row.observacao} ${tagFull}`
-          : tagFull;
+      const observacao = withLegacyStatusTag(row.observacao ?? "", legacy);
       if (observacao !== row.observacao) {
-        await updateRowById("LANCAMENTOS", row.id, {
+        const updated = {
           ...row,
           observacao,
           updated_at: toIsoNow()
-        });
+        };
+        await updateRowById("LANCAMENTOS", row.id, updated);
         row.observacao = observacao;
+        row.updated_at = updated.updated_at;
       }
     }
 
@@ -84,16 +94,44 @@ export async function PUT(request: Request) {
       throw new AppError("id obrigatorio para atualizar", 400, "MISSING_ID");
     }
 
+    await ensureSchemaSheets();
+    const lancamentos = await readLancamentos();
+    const current = lancamentos.find((item) => item.id === parsed.id);
+    if (!current) {
+      throw new AppError(`Registro ${parsed.id} nao encontrado em LANCAMENTOS`, 404, "ROW_NOT_FOUND");
+    }
+
     const now = toIsoNow();
     const row = {
+      ...current,
       ...parsed,
+      id: parsed.id,
+      created_at: current.created_at,
       updated_at: now,
       observacao: parsed.observacao ?? ""
     };
 
-    await ensureSchemaSheets();
-    await updateRowById("LANCAMENTOS", parsed.id, row);
-    return jsonOk({ data: row });
+    let legacy: LegacySyncResult = { status: "skipped", message: "Sincronizacao legado nao executada." };
+    try {
+      const removed = await removeLegacyLancamento(current);
+      if (removed.status === "error") {
+        legacy = {
+          status: "error",
+          message: removed.message ?? "Falha ao remover versao anterior no legado."
+        };
+      } else {
+        legacy = await appendLegacyLancamento(row);
+      }
+    } catch {
+      legacy = { status: "error", message: "Falha ao sincronizar atualizacao com o legado." };
+    }
+
+    const nextRow = {
+      ...row,
+      observacao: withLegacyStatusTag(row.observacao ?? "", legacy)
+    };
+    await updateRowById("LANCAMENTOS", parsed.id, nextRow);
+    return jsonOk({ data: nextRow, legacy });
   } catch (error) {
     return jsonError(error);
   }

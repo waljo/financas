@@ -318,6 +318,9 @@ type Totalizadores = {
     DEA: number;
   };
   pendentes: number;
+  parcelasDoMes: number;
+  totalParceladoEmAberto: number;
+  totalParceladoEmAbertoProjetado: number;
 };
 
 const bancos: BancoCartao[] = ["C6", "BB", "OUTRO"];
@@ -338,6 +341,7 @@ export default function CartoesPage() {
   const [bank, setBank] = useState<BancoCartao>("C6");
   const [cards, setCards] = useState<CartaoCredito[]>([]);
   const [movimentos, setMovimentos] = useState<CartaoMovimentoComAlocacoes[]>([]);
+  const [totalizadores, setTotalizadores] = useState<Totalizadores | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -392,43 +396,24 @@ export default function CartoesPage() {
     () => lancados.reduce((sum, item) => sum + item.valor, 0),
     [lancados]
   );
-  const totalizadores = useMemo<Totalizadores>(() => {
-    const porAtribuicao = {
-      WALKER: 0,
-      AMBOS: 0,
-      DEA: 0
-    };
-    let pendentes = 0;
-
-    for (const movimento of movimentos) {
-      if (movimento.mes_ref !== month) continue;
-      if (!movimento.cartao || movimento.cartao.banco !== bank) continue;
-      if (movimento.status !== "conciliado") {
-        pendentes += 1;
-        continue;
-      }
-      for (const alocacao of movimento.alocacoes) {
-        if (alocacao.atribuicao === "WALKER") porAtribuicao.WALKER += alocacao.valor;
-        if (alocacao.atribuicao === "AMBOS") porAtribuicao.AMBOS += alocacao.valor;
-        if (alocacao.atribuicao === "DEA") porAtribuicao.DEA += alocacao.valor;
-      }
-    }
-
-    return {
-      mes: month,
-      banco: bank,
-      porAtribuicao,
-      pendentes
-    };
-  }, [bank, month, movimentos]);
+  const totalizadoresView: Totalizadores = totalizadores ?? {
+    mes: month,
+    banco: bank,
+    porAtribuicao: { WALKER: 0, AMBOS: 0, DEA: 0 },
+    pendentes: 0,
+    parcelasDoMes: 0,
+    totalParceladoEmAberto: 0,
+    totalParceladoEmAbertoProjetado: 0
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [cardsRes, movRes] = await Promise.all([
+      const [cardsRes, movRes, totalizadoresRes] = await Promise.all([
         fetch("/api/cartoes/cards"),
-        fetch(`/api/cartoes/movimentos?mes=${month}`)
+        fetch(`/api/cartoes/movimentos?mes=${month}`),
+        fetch(`/api/cartoes/totalizadores?mes=${month}&banco=${bank}`)
       ]);
 
       const cardsPayload = await cardsRes.json();
@@ -448,12 +433,18 @@ export default function CartoesPage() {
       const movPayload = await movRes.json();
       if (!movRes.ok) throw new Error(movPayload.message ?? "Erro ao carregar movimentos");
       setMovimentos(movPayload.data ?? []);
+
+      const totalizadoresPayload = await totalizadoresRes.json();
+      if (!totalizadoresRes.ok) {
+        throw new Error(totalizadoresPayload.message ?? "Erro ao carregar totalizadores");
+      }
+      setTotalizadores((totalizadoresPayload.data ?? null) as Totalizadores | null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado ao carregar modulo de cartoes");
     } finally {
       setLoading(false);
     }
-  }, [month]);
+  }, [bank, month]);
 
   useEffect(() => {
     load();
@@ -975,6 +966,35 @@ export default function CartoesPage() {
         </button>
       </section>
 
+      <section className="grid gap-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm md:grid-cols-3">
+        <article className="rounded-lg border border-ink/10 bg-sand p-3">
+          <p className="text-sm text-ink/70">Parcelas do mes</p>
+          <p className="text-2xl font-semibold">
+            {totalizadoresView.parcelasDoMes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          </p>
+          <p className="mt-1 text-xs text-ink/60">Soma das compras parceladas que cairam na fatura deste mes.</p>
+        </article>
+        <article className="rounded-lg border border-ink/10 bg-sand p-3">
+          <p className="text-sm text-ink/70">Total em aberto (realizado)</p>
+          <p className="text-2xl font-semibold">
+            {totalizadoresView.totalParceladoEmAberto.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          </p>
+          <p className="mt-1 text-xs text-ink/60">Baseado apenas nas parcelas ja registradas no sistema.</p>
+        </article>
+        <article className="rounded-lg border border-ink/10 bg-sand p-3">
+          <p className="text-sm text-ink/70">Total em aberto (projetado)</p>
+          <p className="text-2xl font-semibold">
+            {totalizadoresView.totalParceladoEmAbertoProjetado.toLocaleString("pt-BR", {
+              style: "currency",
+              currency: "BRL"
+            })}
+          </p>
+          <p className="mt-1 text-xs text-ink/60">
+            Assume pagamento mensal ate o mes selecionado, mesmo sem lancamento registrado.
+          </p>
+        </article>
+      </section>
+
       <section className="space-y-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Cadastro de cartoes</h2>
         {cardForm.id ? (
@@ -1149,7 +1169,7 @@ export default function CartoesPage() {
             />
           </label>
           <label className="text-sm">
-            Valor total
+            Valor parcela
             <input
               className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
               type="number"

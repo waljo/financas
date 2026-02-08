@@ -150,7 +150,46 @@ export function computeCartaoTotalizadores(params: {
   movimentos: CartaoMovimentoComAlocacoes[];
   mes: string;
   banco: BancoCartao;
-}): TotalizadoresCartao & { pendentes: number } {
+}): TotalizadoresCartao & {
+  pendentes: number;
+  parcelasDoMes: number;
+  totalParceladoEmAberto: number;
+  totalParceladoEmAbertoProjetado: number;
+} {
+  function isYmOrEarlier(left: string, right: string): boolean {
+    if (!/^\d{4}-\d{2}$/.test(left) || !/^\d{4}-\d{2}$/.test(right)) return false;
+    return left <= right;
+  }
+
+  function compraParceladaKey(movimento: CartaoMovimentoComAlocacoes): string {
+    const tx = movimento.tx_key?.trim() ?? "";
+    if (tx) {
+      const base = tx.replace(/\|\d+\/\d+$/, "");
+      if (base !== tx) return base;
+    }
+
+    return [
+      movimento.cartao_id,
+      movimento.data,
+      normalizeForMatch(movimento.descricao),
+      movimento.valor.toFixed(2),
+      String(movimento.parcela_total ?? "")
+    ].join("|");
+  }
+
+  function monthDiffYm(start: string, end: string): number {
+    if (!/^\d{4}-\d{2}$/.test(start) || !/^\d{4}-\d{2}$/.test(end)) return 0;
+    const [startYearRaw, startMonthRaw] = start.split("-");
+    const [endYearRaw, endMonthRaw] = end.split("-");
+    const startYear = Number(startYearRaw);
+    const startMonth = Number(startMonthRaw);
+    const endYear = Number(endYearRaw);
+    const endMonth = Number(endMonthRaw);
+    if (!Number.isInteger(startYear) || !Number.isInteger(startMonth)) return 0;
+    if (!Number.isInteger(endYear) || !Number.isInteger(endMonth)) return 0;
+    return (endYear - startYear) * 12 + (endMonth - startMonth);
+  }
+
   const total = {
     WALKER: 0,
     AMBOS: 0,
@@ -158,9 +197,43 @@ export function computeCartaoTotalizadores(params: {
   };
 
   let pendentes = 0;
+  let parcelasDoMes = 0;
+  const latestParcelaByCompra = new Map<string, CartaoMovimentoComAlocacoes>();
+
   for (const movimento of params.movimentos) {
-    if (movimento.mes_ref !== params.mes) continue;
     if (!movimento.cartao || movimento.cartao.banco !== params.banco) continue;
+
+    const parcelaTotal = movimento.parcela_total ?? null;
+    const ehParcelado = Boolean(parcelaTotal && parcelaTotal > 1);
+
+    if (movimento.mes_ref === params.mes && ehParcelado) {
+      parcelasDoMes += movimento.valor;
+    }
+
+    if (ehParcelado && isYmOrEarlier(movimento.mes_ref, params.mes)) {
+      const key = compraParceladaKey(movimento);
+      const existing = latestParcelaByCompra.get(key);
+      if (!existing) {
+        latestParcelaByCompra.set(key, movimento);
+      } else {
+        const existingNumero = existing.parcela_numero ?? 1;
+        const currentNumero = movimento.parcela_numero ?? 1;
+        const shouldReplace =
+          currentNumero > existingNumero ||
+          (currentNumero === existingNumero && movimento.mes_ref > existing.mes_ref) ||
+          (currentNumero === existingNumero &&
+            movimento.mes_ref === existing.mes_ref &&
+            movimento.updated_at > existing.updated_at);
+        if (shouldReplace) {
+          latestParcelaByCompra.set(key, movimento);
+        }
+      }
+    }
+
+    if (movimento.mes_ref !== params.mes) {
+      continue;
+    }
+
     if (movimento.status !== "conciliado") {
       pendentes += 1;
       continue;
@@ -173,11 +246,29 @@ export function computeCartaoTotalizadores(params: {
     }
   }
 
+  let totalParceladoEmAberto = 0;
+  let totalParceladoEmAbertoProjetado = 0;
+  for (const movimento of latestParcelaByCompra.values()) {
+    const parcelaTotal = movimento.parcela_total ?? 1;
+    const parcelaNumero = movimento.parcela_numero ?? 1;
+    const parcelaNumeroAtual = Math.min(Math.max(parcelaNumero, 1), parcelaTotal);
+    const restantesRealizados = Math.max(parcelaTotal - parcelaNumeroAtual, 0);
+    totalParceladoEmAberto += movimento.valor * restantesRealizados;
+
+    const avancarMeses = Math.max(monthDiffYm(movimento.mes_ref, params.mes), 0);
+    const parcelaNumeroProjetada = Math.min(parcelaNumeroAtual + avancarMeses, parcelaTotal);
+    const restantesProjetados = Math.max(parcelaTotal - parcelaNumeroProjetada, 0);
+    totalParceladoEmAbertoProjetado += movimento.valor * restantesProjetados;
+  }
+
   return {
     mes: params.mes,
     banco: params.banco,
     porAtribuicao: total,
-    pendentes
+    pendentes,
+    parcelasDoMes: Number(parcelasDoMes.toFixed(2)),
+    totalParceladoEmAberto: Number(totalParceladoEmAberto.toFixed(2)),
+    totalParceladoEmAbertoProjetado: Number(totalParceladoEmAbertoProjetado.toFixed(2))
   };
 }
 

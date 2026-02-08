@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CartaoMovimentoComAlocacoes } from "@/lib/types";
-import { reconcileImportLines } from "@/domain/cartoes";
+import { computeCartaoTotalizadores, reconcileImportLines } from "@/domain/cartoes";
 
 function movement(input: {
   id: string;
@@ -9,24 +9,49 @@ function movement(input: {
   descricao: string;
   valor: number;
   tx_key: string;
+  parcela_total?: number | null;
+  parcela_numero?: number | null;
+  status?: CartaoMovimentoComAlocacoes["status"];
+  mes_ref?: string;
+  banco?: "C6" | "BB" | "OUTRO";
+  alocacoes?: Array<{ atribuicao: "WALKER" | "AMBOS" | "DEA" | "AMBOS_I"; valor: number }>;
 }): CartaoMovimentoComAlocacoes {
+  const cartaoId = input.cartao_id ?? "c1";
+  const banco = input.banco ?? "C6";
   return {
     id: input.id,
-    cartao_id: input.cartao_id ?? "c1",
+    cartao_id: cartaoId,
     data: input.data,
     descricao: input.descricao,
     valor: input.valor,
-    parcela_total: null,
-    parcela_numero: null,
+    parcela_total: input.parcela_total ?? null,
+    parcela_numero: input.parcela_numero ?? null,
     tx_key: input.tx_key,
     origem: "manual",
-    status: "conciliado",
-    mes_ref: "2026-02",
+    status: input.status ?? "conciliado",
+    mes_ref: input.mes_ref ?? "2026-02",
     observacao: "",
     created_at: "2026-02-01T00:00:00.000Z",
     updated_at: "2026-02-01T00:00:00.000Z",
-    cartao: null,
-    alocacoes: []
+    cartao: {
+      id: cartaoId,
+      nome: `${banco} CARD`,
+      banco,
+      titular: "WALKER",
+      final_cartao: "",
+      padrao_atribuicao: "AMBOS",
+      ativo: true,
+      created_at: "2026-02-01T00:00:00.000Z",
+      updated_at: "2026-02-01T00:00:00.000Z"
+    },
+    alocacoes: (input.alocacoes ?? []).map((item, index) => ({
+      id: `${input.id}-a${index + 1}`,
+      movimento_id: input.id,
+      atribuicao: item.atribuicao,
+      valor: item.valor,
+      created_at: "2026-02-01T00:00:00.000Z",
+      updated_at: "2026-02-01T00:00:00.000Z"
+    }))
   };
 }
 
@@ -145,5 +170,84 @@ describe("reconcileImportLines", () => {
     expect(result.conciliados).toBe(2);
     expect(result.novos).toBe(0);
     expect(result.preview[0]?.movimentoId).not.toBe(result.preview[1]?.movimentoId);
+  });
+});
+
+describe("computeCartaoTotalizadores", () => {
+  it("calcula parcelas do mes e total parcelado em aberto", () => {
+    const movimentos = [
+      movement({
+        id: "p1",
+        data: "2026-02-05",
+        descricao: "Notebook",
+        valor: 100,
+        tx_key: "k1",
+        parcela_numero: 3,
+        parcela_total: 10,
+        status: "conciliado",
+        banco: "C6",
+        alocacoes: [{ atribuicao: "WALKER", valor: 100 }]
+      }),
+      movement({
+        id: "p2",
+        data: "2026-02-12",
+        descricao: "Passagem",
+        valor: 50,
+        tx_key: "k2",
+        parcela_numero: 2,
+        parcela_total: 5,
+        status: "pendente",
+        banco: "C6"
+      }),
+      movement({
+        id: "x1",
+        data: "2026-02-20",
+        descricao: "Restaurante",
+        valor: 70,
+        tx_key: "k3",
+        status: "conciliado",
+        banco: "C6",
+        alocacoes: [{ atribuicao: "AMBOS", valor: 70 }]
+      }),
+      movement({
+        id: "z1",
+        data: "2026-02-08",
+        descricao: "Compra BB",
+        valor: 40,
+        tx_key: "k4",
+        parcela_numero: 1,
+        parcela_total: 4,
+        status: "conciliado",
+        banco: "BB",
+        alocacoes: [{ atribuicao: "DEA", valor: 40 }]
+      }),
+      movement({
+        id: "z2",
+        data: "2026-01-08",
+        descricao: "Compra mes anterior",
+        valor: 60,
+        tx_key: "k5",
+        parcela_numero: 1,
+        parcela_total: 3,
+        status: "conciliado",
+        mes_ref: "2026-01",
+        banco: "C6",
+        alocacoes: [{ atribuicao: "DEA", valor: 60 }]
+      })
+    ];
+
+    const result = computeCartaoTotalizadores({
+      movimentos,
+      mes: "2026-02",
+      banco: "C6"
+    });
+
+    expect(result.parcelasDoMes).toBe(150);
+    expect(result.totalParceladoEmAberto).toBe(970);
+    expect(result.totalParceladoEmAbertoProjetado).toBe(910);
+    expect(result.pendentes).toBe(1);
+    expect(result.porAtribuicao.WALKER).toBe(100);
+    expect(result.porAtribuicao.AMBOS).toBe(70);
+    expect(result.porAtribuicao.DEA).toBe(0);
   });
 });

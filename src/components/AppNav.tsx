@@ -7,6 +7,7 @@ const links = [
   { href: "/", label: "Dashboard" },
   { href: "/lancar", label: "Lancar" },
   { href: "/cartoes", label: "Cartoes" },
+  { href: "/categorias", label: "Categorias" },
   { href: "/contas-fixas", label: "Contas Fixas" },
   { href: "/calendario-anual", label: "Calendario" },
   { href: "/relatorios", label: "Relatorios" },

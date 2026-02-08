@@ -3,14 +3,169 @@
 import { useEffect, useState } from "react";
 import type { DashboardData, Lancamento } from "@/lib/types";
 
+const MANUAL_BALANCE_STORAGE_KEY = "dashboard.manual-balance.v2";
+const BANK_BALANCE_FIELDS = [
+  { key: "bb", label: "Saldo BB" },
+  { key: "c6", label: "Saldo C6" }
+] as const;
+
+type BankBalanceKey = (typeof BANK_BALANCE_FIELDS)[number]["key"];
+type BankBalances = Record<BankBalanceKey, string>;
+
 function currentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function createEmptyBankBalances(): BankBalances {
+  return { bb: "", c6: "" };
+}
+
+function normalizeBankBalances(value: unknown): BankBalances {
+  const output = createEmptyBankBalances();
+  if (!value || typeof value !== "object") {
+    return output;
+  }
+
+  for (const item of BANK_BALANCE_FIELDS) {
+    const raw = (value as Record<string, unknown>)[item.key];
+    output[item.key] = typeof raw === "string" ? raw : "";
+  }
+
+  return output;
+}
+
+function hasAnyBankBalance(bankBalances: BankBalances): boolean {
+  return BANK_BALANCE_FIELDS.some((item) => bankBalances[item.key].trim() !== "");
+}
+
+function parseInputNumber(value: string): number {
+  const trimmed = value.trim();
+  if (trimmed === "") return 0;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+interface StoredManualBalance {
+  month: string;
+  bankBalances: BankBalances;
+  saldoCarteira: string;
+  updatedAt: string;
+}
+
+interface ManualBalanceStore {
+  latest: StoredManualBalance | null;
+  byMonth: Record<string, StoredManualBalance>;
+}
+
+function readManualBalanceStore(): ManualBalanceStore {
+  if (typeof window === "undefined") {
+    return { latest: null, byMonth: {} };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(MANUAL_BALANCE_STORAGE_KEY);
+    if (!raw) {
+      return { latest: null, byMonth: {} };
+    }
+
+    const parsed = JSON.parse(raw) as ManualBalanceStore;
+    if (!parsed || typeof parsed !== "object") {
+      return { latest: null, byMonth: {} };
+    }
+
+    const byMonthRaw = parsed.byMonth ?? {};
+    const byMonth = Object.fromEntries(
+      Object.entries(byMonthRaw).map(([month, item]) => {
+        const entry = item as
+          | {
+              month?: unknown;
+              bankBalances?: unknown;
+              saldoCarteira?: unknown;
+              updatedAt?: unknown;
+            }
+          | undefined;
+
+        const normalized: StoredManualBalance = {
+          month: typeof entry?.month === "string" ? entry.month : month,
+          bankBalances: normalizeBankBalances(entry?.bankBalances),
+          saldoCarteira: typeof entry?.saldoCarteira === "string" ? entry.saldoCarteira : "",
+          updatedAt: typeof entry?.updatedAt === "string" ? entry.updatedAt : new Date(0).toISOString()
+        };
+        return [month, normalized];
+      })
+    ) as Record<string, StoredManualBalance>;
+
+    const latestRaw = parsed.latest as
+      | {
+          month?: unknown;
+          bankBalances?: unknown;
+          saldoCarteira?: unknown;
+          updatedAt?: unknown;
+        }
+      | null
+      | undefined;
+
+    const latest: StoredManualBalance | null =
+      latestRaw && typeof latestRaw.month === "string"
+        ? {
+            month: latestRaw.month,
+            bankBalances: normalizeBankBalances(latestRaw.bankBalances),
+            saldoCarteira: typeof latestRaw.saldoCarteira === "string" ? latestRaw.saldoCarteira : "",
+            updatedAt: typeof latestRaw.updatedAt === "string" ? latestRaw.updatedAt : new Date(0).toISOString()
+          }
+        : null;
+
+    return { latest, byMonth };
+  } catch {
+    return { latest: null, byMonth: {} };
+  }
+}
+
+function readManualBalanceForMonth(month: string): { bankBalances: BankBalances; saldoCarteira: string } | null {
+  const store = readManualBalanceStore();
+  const byMonth = store.byMonth[month];
+  if (byMonth) {
+    return {
+      bankBalances: byMonth.bankBalances,
+      saldoCarteira: byMonth.saldoCarteira
+    };
+  }
+  if (month === currentMonth() && store.latest) {
+    return {
+      bankBalances: store.latest.bankBalances,
+      saldoCarteira: store.latest.saldoCarteira
+    };
+  }
+  return null;
+}
+
+function saveManualBalance(month: string, bankBalances: BankBalances, saldoCarteira: string) {
+  if (typeof window === "undefined") return;
+  if (!hasAnyBankBalance(bankBalances) && saldoCarteira.trim() === "") return;
+
+  const store = readManualBalanceStore();
+  const entry: StoredManualBalance = {
+    month,
+    bankBalances,
+    saldoCarteira,
+    updatedAt: new Date().toISOString()
+  };
+
+  const nextStore: ManualBalanceStore = {
+    latest: entry,
+    byMonth: {
+      ...store.byMonth,
+      [month]: entry
+    }
+  };
+
+  window.localStorage.setItem(MANUAL_BALANCE_STORAGE_KEY, JSON.stringify(nextStore));
+}
+
 export default function DashboardPage() {
   const [month, setMonth] = useState(currentMonth());
-  const [saldoBanco, setSaldoBanco] = useState("");
+  const [bankBalances, setBankBalances] = useState<BankBalances>(createEmptyBankBalances());
   const [saldoCarteira, setSaldoCarteira] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingLanc, setLoadingLanc] = useState(false);
@@ -39,29 +194,73 @@ export default function DashboardPage() {
   });
   const [bootstrapMsg, setBootstrapMsg] = useState<string>("");
 
-  async function fetchDashboard(nextMonth: string, nextSaldoBanco: string, nextSaldoCarteira: string) {
-    setLoading(true);
+  async function fetchDashboard(nextMonth: string, options?: { skipLoading?: boolean }) {
+    const shouldManageLoading = !options?.skipLoading;
+    if (shouldManageLoading) {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const params = new URLSearchParams({ mes: nextMonth });
-      if (nextSaldoBanco.trim() !== "") {
-        params.set("saldoBanco", nextSaldoBanco);
-      }
-      if (nextSaldoCarteira.trim() !== "") {
-        params.set("saldoCarteira", nextSaldoCarteira);
-      }
-      const response = await fetch(`/api/dashboard?${params.toString()}`);
+      const response = await fetch(`/api/dashboard?mes=${nextMonth}`);
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.message ?? "Falha ao carregar dashboard");
       }
       setData(payload.data);
-      if (payload.data) {
-        setSaldoBanco(String(payload.data.saldoBancoReferencia));
-        setSaldoCarteira(String(payload.data.saldoCarteiraReferencia));
+
+      const stored = readManualBalanceForMonth(nextMonth);
+      if (!stored && payload.data) {
+        setBankBalances((prev) => {
+          if (hasAnyBankBalance(prev)) return prev;
+          return {
+            ...createEmptyBankBalances(),
+            bb: String(payload.data.saldoBancoReferencia)
+          };
+        });
+        setSaldoCarteira((prev) => (prev.trim() !== "" ? prev : String(payload.data.saldoCarteiraReferencia)));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado");
+    } finally {
+      if (shouldManageLoading) {
+        setLoading(false);
+      }
+    }
+  }
+
+  async function persistLegacyBalance(nextMonth: string, nextBankBalances: BankBalances, nextSaldoCarteira: string) {
+    const response = await fetch("/api/dashboard/saldo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mes: nextMonth,
+        saldoBB: parseInputNumber(nextBankBalances.bb),
+        saldoC6: parseInputNumber(nextBankBalances.c6),
+        saldoCarteira: parseInputNumber(nextSaldoCarteira)
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.message ?? "Falha ao atualizar saldo legado");
+    }
+  }
+
+  async function refreshDashboard() {
+    const semSaldoBancos = !hasAnyBankBalance(bankBalances);
+    const semSaldoCarteira = saldoCarteira.trim() === "";
+    if (semSaldoBancos && semSaldoCarteira) {
+      setError("Preencha ao menos um saldo antes de atualizar para evitar gravar zero no legado.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      await persistLegacyBalance(month, bankBalances, saldoCarteira);
+      saveManualBalance(month, bankBalances, saldoCarteira);
+      await fetchDashboard(month, { skipLoading: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar saldo real");
     } finally {
       setLoading(false);
     }
@@ -85,10 +284,17 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    fetchDashboard(month, saldoBanco, saldoCarteira);
-    fetchLancamentos(month);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const stored = readManualBalanceForMonth(month);
+    if (stored) {
+      setBankBalances(stored.bankBalances);
+      setSaldoCarteira(stored.saldoCarteira);
+    } else {
+      setBankBalances(createEmptyBankBalances());
+      setSaldoCarteira("");
+    }
+    void fetchDashboard(month);
+    void fetchLancamentos(month);
+  }, [month]);
 
   async function bootstrapSheets() {
     setBootstrapMsg("Configurando abas...");
@@ -99,7 +305,7 @@ export default function DashboardPage() {
       return;
     }
     setBootstrapMsg("Abas normalizadas prontas.");
-    await fetchDashboard(month, saldoBanco, saldoCarteira);
+    await fetchDashboard(month);
   }
 
   function startEdit(item: Lancamento) {
@@ -144,7 +350,7 @@ export default function DashboardPage() {
       }
       setEditId(null);
       await fetchLancamentos(month);
-      await fetchDashboard(month, saldoBanco, saldoCarteira);
+      await fetchDashboard(month);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar lancamento");
     }
@@ -159,7 +365,7 @@ export default function DashboardPage() {
         throw new Error(result.message ?? "Falha ao excluir lancamento");
       }
       await fetchLancamentos(month);
-      await fetchDashboard(month, saldoBanco, saldoCarteira);
+      await fetchDashboard(month);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao excluir lancamento");
     }
@@ -228,6 +434,8 @@ export default function DashboardPage() {
   const receberPagarDEA = data?.receberPagarDEA ?? 0;
   const deaLabel = receberPagarDEA > 0 ? "Receber DEA" : receberPagarDEA < 0 ? "Pagar DEA" : "Acerto DEA";
   const deaValue = Math.abs(receberPagarDEA);
+  const saldoBancosTotal = BANK_BALANCE_FIELDS.reduce((acc, item) => acc + parseInputNumber(bankBalances[item.key]), 0);
+  const balancoValue = data?.diferencaBalanco ?? 0;
 
   const cards = [
     { label: "Receitas do mes", value: data?.receitasMes ?? 0 },
@@ -237,7 +445,6 @@ export default function DashboardPage() {
     { label: deaLabel, value: deaValue },
     { label: "Saldo sistema", value: data?.balancoSistema ?? 0 },
     { label: "Saldo real", value: data?.balancoReal ?? 0 },
-    { label: "Balanco", value: data?.diferencaBalanco ?? 0 },
     { label: "Projecao 90 dias", value: data?.projecao90Dias?.saldoProjetado ?? 0 }
   ];
 
@@ -250,7 +457,18 @@ export default function DashboardPage() {
         </p>
       </header>
 
-      <div className="grid gap-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm md:grid-cols-4">
+      <article
+        className={`rounded-2xl border p-5 shadow-sm ${
+          balancoValue >= 0 ? "border-pine/40 bg-pine/10" : "border-coral/40 bg-coral/10"
+        }`}
+      >
+        <p className="text-sm font-medium text-ink/70">Balanco (diferenca entre saldo real e sistema)</p>
+        <p className="mt-2 text-3xl font-bold">
+          {balancoValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+        </p>
+      </article>
+
+      <div className="grid gap-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm md:grid-cols-5">
         <label className="text-sm">
           Mes
           <input
@@ -258,21 +476,30 @@ export default function DashboardPage() {
             type="month"
             value={month}
             onChange={(event) => {
-              setMonth(event.target.value);
-              setSaldoBanco("");
-              setSaldoCarteira("");
+              const nextMonth = event.target.value;
+              const stored = readManualBalanceForMonth(nextMonth);
+              setMonth(nextMonth);
+              setBankBalances(stored?.bankBalances ?? createEmptyBankBalances());
+              setSaldoCarteira(stored?.saldoCarteira ?? "");
             }}
           />
         </label>
-        <label className="text-sm">
-          Saldo banco (BB + C6)
-          <input
-            className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-            type="number"
-            value={saldoBanco}
-            onChange={(event) => setSaldoBanco(event.target.value)}
-          />
-        </label>
+        {BANK_BALANCE_FIELDS.map((item) => (
+          <label key={item.key} className="text-sm">
+            {item.label}
+            <input
+              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+              type="number"
+              value={bankBalances[item.key]}
+              onChange={(event) =>
+                setBankBalances((prev) => ({
+                  ...prev,
+                  [item.key]: event.target.value
+                }))
+              }
+            />
+          </label>
+        ))}
         <label className="text-sm">
           Carteira
           <input
@@ -282,35 +509,31 @@ export default function DashboardPage() {
             onChange={(event) => setSaldoCarteira(event.target.value)}
           />
         </label>
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            className="rounded-lg bg-ink px-4 py-2 text-sand"
-            onClick={() => fetchDashboard(month, saldoBanco, saldoCarteira)}
-            disabled={loading}
-          >
-            {loading ? "Carregando..." : "Atualizar"}
-          </button>
-          <button
-            type="button"
-            className="rounded-lg bg-pine px-4 py-2 text-white"
-            onClick={bootstrapSheets}
-          >
-            Bootstrap abas
-          </button>
+        <div className="text-sm text-ink/70 md:pt-7">
+          Bancos (BB + C6):{" "}
+          {saldoBancosTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
         </div>
       </div>
 
-      {data ? (
-        <p className="text-sm text-ink/70">
-          Fonte do saldo real:{" "}
-          {data.fonteSaldoReal === "legacy"
-            ? "planilha legada (C7/C8)"
-            : data.fonteSaldoReal === "mixed"
-              ? "misto (manual + planilha legada)"
-              : "manual"}
-        </p>
-      ) : null}
+      <div className="flex flex-wrap items-end gap-2">
+        <button
+          type="button"
+          className="rounded-lg bg-ink px-4 py-2 text-sand"
+          onClick={refreshDashboard}
+          disabled={loading}
+        >
+          {loading ? "Carregando..." : "Atualizar"}
+        </button>
+        <button
+          type="button"
+          className="rounded-lg bg-pine px-4 py-2 text-white"
+          onClick={bootstrapSheets}
+        >
+          Bootstrap abas
+        </button>
+      </div>
+
+      <p className="text-sm text-ink/70">Fonte do saldo real: planilha legada (C7/C8).</p>
 
       {bootstrapMsg ? <p className="text-sm text-pine">{bootstrapMsg}</p> : null}
       {error ? <p className="rounded-lg bg-coral/20 p-3 text-sm text-coral">{error}</p> : null}

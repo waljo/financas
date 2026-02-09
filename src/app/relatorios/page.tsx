@@ -165,14 +165,14 @@ export default function RelatoriosPage() {
       ) : null}
 
       {parcelasOpen ? (
-        <div className="fixed inset-0 z-40">
+        <div className="fixed inset-0 z-[120]">
           <button
             type="button"
             aria-label="Fechar detalhe de parcelas"
             className="absolute inset-0 bg-ink/40"
             onClick={() => setParcelasOpen(false)}
           />
-          <section className="absolute bottom-0 left-0 right-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl">
+          <section className="absolute bottom-0 left-0 right-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 pb-28 shadow-2xl md:pb-6">
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Parcelas ativas ({month})</h2>

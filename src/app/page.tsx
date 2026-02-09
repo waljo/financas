@@ -46,6 +46,10 @@ function parseInputNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 interface StoredManualBalance {
   month: string;
   bankBalances: BankBalances;
@@ -170,6 +174,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [loadingLanc, setLoadingLanc] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saldoConsistencyAlert, setSaldoConsistencyAlert] = useState<string | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [filterText, setFilterText] = useState("");
@@ -295,6 +300,37 @@ export default function DashboardPage() {
     void fetchDashboard(month);
     void fetchLancamentos(month);
   }, [month]);
+
+  useEffect(() => {
+    if (!data) {
+      setSaldoConsistencyAlert(null);
+      return;
+    }
+
+    const saldoBancarioAtual = BANK_BALANCE_FIELDS.reduce(
+      (acc, item) => acc + parseInputNumber(bankBalances[item.key]),
+      0
+    );
+    const saldoCarteiraAtual = parseInputNumber(saldoCarteira);
+    const saldoInformado = roundMoney(saldoBancarioAtual + saldoCarteiraAtual);
+    const saldoRealPlanilha = roundMoney(data.balancoReal ?? 0);
+    const diferenca = roundMoney(saldoRealPlanilha - saldoInformado);
+
+    if (Math.abs(diferenca) >= 0.01) {
+      setSaldoConsistencyAlert(
+        `Alerta: saldo real da planilha (${saldoRealPlanilha.toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL"
+        })}) difere de saldo bancario + carteira (${saldoInformado.toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL"
+        })}) em ${Math.abs(diferenca).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`
+      );
+      return;
+    }
+
+    setSaldoConsistencyAlert(null);
+  }, [data, bankBalances, saldoCarteira]);
 
   async function bootstrapSheets() {
     setBootstrapMsg("Configurando abas...");
@@ -444,7 +480,7 @@ export default function DashboardPage() {
     { label: "Saldo apos acerto DEA", value: data?.saldoAposAcertoDEA ?? 0 },
     { label: deaLabel, value: deaValue },
     { label: "Saldo sistema", value: data?.balancoSistema ?? 0 },
-    { label: "Saldo real", value: data?.balancoReal ?? 0 },
+    { label: "SALDO REAL (VEM DA PLANILHA)", value: data?.balancoReal ?? 0 },
     { label: "Projecao 90 dias", value: data?.projecao90Dias?.saldoProjetado ?? 0 }
   ];
 
@@ -515,6 +551,13 @@ export default function DashboardPage() {
       {/* Manual Controls Section */}
       <section className="rounded-3xl bg-sand/50 p-6 ring-1 ring-ink/5">
         <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-ink/40">Controle de Caixa</h2>
+        <article className="mb-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">Saldo bancario</p>
+          <p className="mt-1 text-2xl font-black tracking-tight text-ink">
+            {saldoBancosTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          </p>
+          <p className="mt-1 text-xs text-ink/55">Soma dos saldos informados em BB e C6.</p>
+        </article>
         <div className="grid gap-4 md:grid-cols-4">
           <div className="space-y-1">
             <label className="text-[10px] font-bold uppercase text-ink/40 ml-1">Referência</label>
@@ -580,6 +623,11 @@ export default function DashboardPage() {
         
         {bootstrapMsg && <p className="mt-3 text-center text-[10px] font-bold uppercase text-pine animate-pulse">{bootstrapMsg}</p>}
         {error && <p className="mt-3 rounded-xl bg-coral/10 p-3 text-center text-xs font-bold text-coral">{error}</p>}
+        {saldoConsistencyAlert && (
+          <p className="mt-3 rounded-xl bg-amber-100 p-3 text-center text-xs font-bold text-amber-800">
+            {saldoConsistencyAlert}
+          </p>
+        )}
       </section>
 
       {/* Secondary Metrics */}

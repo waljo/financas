@@ -17,6 +17,19 @@ function dueDateForMonth(month: string, day: number) {
   return `${month}-${String(safeDay).padStart(2, "0")}`;
 }
 
+function dateWithMonth(date: string, month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return date;
+  }
+  const dayRaw = Number(date.slice(8, 10));
+  const safeDay = Number.isFinite(dayRaw) && dayRaw > 0 ? dayRaw : 1;
+  const [yearRaw, monthRaw] = month.split("-");
+  const year = Number(yearRaw);
+  const monthNumber = Number(monthRaw);
+  const maxDay = new Date(year, monthNumber, 0).getDate();
+  return `${month}-${String(Math.min(safeDay, maxDay)).padStart(2, "0")}`;
+}
+
 function parseIsoDate(value: string) {
   const [yearRaw, monthRaw, dayRaw] = value.split("-");
   const year = Number(yearRaw);
@@ -63,6 +76,14 @@ type FixedStatus = {
   tone: "mint" | "coral" | "amber" | "ink";
 };
 
+type ReceitaEditForm = {
+  data: string;
+  descricao: string;
+  categoria: string;
+  valor: string;
+  observacao: string;
+};
+
 const fixedStatusClass: Record<FixedStatus["tone"], string> = {
   mint: "bg-mint/20 text-pine",
   coral: "bg-coral/20 text-coral",
@@ -73,6 +94,7 @@ const fixedStatusClass: Record<FixedStatus["tone"], string> = {
 export default function LancarPage() {
   const [today] = useState(() => todayIso());
   const currentMonth = useMemo(() => today.slice(0, 7), [today]);
+  const [receitasMonth, setReceitasMonth] = useState(currentMonth);
 
   const initialState = useMemo<FormState>(
     () => ({
@@ -99,6 +121,17 @@ export default function LancarPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [savingFixedKey, setSavingFixedKey] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loadingReceitas, setLoadingReceitas] = useState(false);
+  const [receitasMes, setReceitasMes] = useState<Lancamento[]>([]);
+  const [editingReceitaId, setEditingReceitaId] = useState<string | null>(null);
+  const [savingReceitaId, setSavingReceitaId] = useState<string | null>(null);
+  const [receitaEditForm, setReceitaEditForm] = useState<ReceitaEditForm>({
+    data: `${currentMonth}-01`,
+    descricao: "",
+    categoria: "RECEITAS",
+    valor: "",
+    observacao: ""
+  });
   const [message, setMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
 
@@ -142,6 +175,32 @@ export default function LancarPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const loadReceitas = useCallback(async (month: string) => {
+    setLoadingReceitas(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/lancamentos?mes=${month}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.message ?? "Erro ao carregar receitas");
+      }
+
+      const receitas = ((payload.data ?? []) as Lancamento[])
+        .filter((item) => item.tipo === "receita")
+        .sort((a, b) => b.data.localeCompare(a.data));
+      setReceitasMes(receitas);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao carregar receitas");
+    } finally {
+      setLoadingReceitas(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "receita") return;
+    void loadReceitas(receitasMonth);
+  }, [mode, receitasMonth, loadReceitas]);
 
   const launchCountByConta = useMemo(() => {
     const output = new Map<string, number>();
@@ -202,6 +261,7 @@ export default function LancarPage() {
       if (nextMode === "receita") {
         return {
           ...prev,
+          data: dateWithMonth(prev.data || `${receitasMonth}-01`, receitasMonth),
           tipo: "receita",
           atribuicao: "WALKER",
           quem_pagou: "WALKER",
@@ -217,6 +277,115 @@ export default function LancarPage() {
         categoria: prev.categoria === "RECEITAS" ? "" : prev.categoria
       };
     });
+  }
+
+function handleReceitasMonthChange(nextMonth: string) {
+    if (!/^\d{4}-\d{2}$/.test(nextMonth)) return;
+    setReceitasMonth(nextMonth);
+    setEditingReceitaId(null);
+    setForm((prev) =>
+      mode === "receita"
+        ? {
+            ...prev,
+            data: dateWithMonth(prev.data || `${nextMonth}-01`, nextMonth)
+          }
+        : prev
+    );
+  }
+
+  function startEditReceita(item: Lancamento) {
+    setEditingReceitaId(item.id);
+    setReceitaEditForm({
+      data: item.data,
+      descricao: item.descricao,
+      categoria: item.categoria || "RECEITAS",
+      valor: String(item.valor),
+      observacao: item.observacao ?? ""
+    });
+  }
+
+  function cancelEditReceita() {
+    setEditingReceitaId(null);
+  }
+
+  async function saveReceitaEdit(id: string) {
+    const receitaAtual = receitasMes.find((item) => item.id === id);
+    if (!receitaAtual) {
+      setError("Receita não encontrada para edição.");
+      return;
+    }
+
+    const valor = parseMoneyInput(receitaEditForm.valor);
+    if (!Number.isFinite(valor) || valor === 0) {
+      setError("Valor precisa ser diferente de zero.");
+      return;
+    }
+
+    setSavingReceitaId(id);
+    setError("");
+    setMessage("");
+
+    try {
+      const payload = {
+        id,
+        data: dateWithMonth(receitaEditForm.data || `${receitasMonth}-01`, receitasMonth),
+        tipo: "receita" as const,
+        descricao: receitaEditForm.descricao.trim(),
+        categoria: receitaEditForm.categoria.trim() || "RECEITAS",
+        valor,
+        atribuicao: "WALKER" as const,
+        metodo: receitaAtual.metodo || "outro",
+        parcela_total: null,
+        parcela_numero: null,
+        observacao: receitaEditForm.observacao ?? "",
+        quem_pagou: "WALKER" as const
+      };
+
+      const response = await fetch("/api/lancamentos", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message ?? "Erro ao atualizar receita");
+      }
+
+      setMessage("Receita atualizada com sucesso.");
+      setEditingReceitaId(null);
+      await Promise.all([loadReceitas(receitasMonth), loadData()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar receita");
+    } finally {
+      setSavingReceitaId(null);
+    }
+  }
+
+  async function deleteReceita(id: string) {
+    const confirmed = confirm("Excluir esta receita?");
+    if (!confirmed) return;
+
+    setError("");
+    setMessage("");
+    setSavingReceitaId(id);
+
+    try {
+      const response = await fetch(`/api/lancamentos?id=${id}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message ?? "Erro ao excluir receita");
+      }
+
+      setMessage("Receita excluída com sucesso.");
+      if (editingReceitaId === id) {
+        setEditingReceitaId(null);
+      }
+      await Promise.all([loadReceitas(receitasMonth), loadData()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao excluir receita");
+    } finally {
+      setSavingReceitaId(null);
+    }
   }
 
   async function launchFixed(conta: ContaFixa, action: "today" | "due") {
@@ -292,6 +461,7 @@ export default function LancarPage() {
 
       const payload = {
         ...form,
+        data: tipo === "receita" ? dateWithMonth(form.data, receitasMonth) : form.data,
         tipo,
         atribuicao: tipo === "receita" ? "WALKER" : form.atribuicao,
         quem_pagou: tipo === "receita" ? "WALKER" : form.quem_pagou,
@@ -316,6 +486,7 @@ export default function LancarPage() {
         mode === "receita"
           ? {
               ...initialState,
+              data: dateWithMonth(initialState.data, receitasMonth),
               tipo: "receita",
               atribuicao: "WALKER",
               quem_pagou: "WALKER",
@@ -323,7 +494,7 @@ export default function LancarPage() {
             }
           : { ...initialState, tipo: "despesa" }
       );
-      await loadData();
+      await Promise.all([loadData(), tipo === "receita" ? loadReceitas(receitasMonth) : Promise.resolve()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado");
     } finally {
@@ -490,6 +661,176 @@ export default function LancarPage() {
             <p className="text-sm font-bold text-ink/30">Preencha os campos abaixo com atenção.</p>
           </header>
 
+          {mode === "receita" && (
+            <section className="mb-8 space-y-4 rounded-3xl bg-sand/50 p-5 ring-1 ring-ink/5">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex-1 space-y-1">
+                  <span className="ml-1 block text-[10px] font-bold uppercase tracking-widest text-ink/40">
+                    Mês das receitas
+                  </span>
+                  <input
+                    className="h-12 w-full rounded-xl bg-white px-4 text-sm font-bold shadow-sm ring-1 ring-ink/10 transition-all focus:ring-2 focus:ring-pine outline-none"
+                    type="month"
+                    value={receitasMonth}
+                    onChange={(event) => handleReceitasMonthChange(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="h-12 rounded-xl bg-white px-4 text-xs font-bold uppercase tracking-widest text-ink shadow-sm ring-1 ring-ink/10 active:scale-95 transition-all"
+                  onClick={() => void loadReceitas(receitasMonth)}
+                  disabled={loadingReceitas}
+                >
+                  {loadingReceitas ? "Atualizando..." : "Atualizar"}
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-ink/45">
+                  Receitas do mês selecionado ({receitasMes.length})
+                </p>
+                {loadingReceitas ? (
+                  <p className="text-xs font-bold text-ink/50">Carregando receitas...</p>
+                ) : receitasMes.length === 0 ? (
+                  <p className="rounded-2xl bg-white p-4 text-xs font-bold text-ink/50 ring-1 ring-ink/10">
+                    Sem receitas lançadas neste mês.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {receitasMes.map((item) => {
+                      const isEditing = editingReceitaId === item.id;
+                      const isSaving = savingReceitaId === item.id;
+
+                      if (isEditing) {
+                        return (
+                          <article key={item.id} className="space-y-3 rounded-2xl bg-white p-4 ring-1 ring-ink/10">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="space-y-1">
+                                <span className="ml-1 block text-[10px] font-bold uppercase tracking-widest text-ink/40">
+                                  Data
+                                </span>
+                                <input
+                                  className="h-11 w-full rounded-xl bg-sand/30 px-4 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                                  type="date"
+                                  value={receitaEditForm.data}
+                                  onChange={(event) =>
+                                    setReceitaEditForm((prev) => ({ ...prev, data: event.target.value }))
+                                  }
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <span className="ml-1 block text-[10px] font-bold uppercase tracking-widest text-ink/40">
+                                  Valor
+                                </span>
+                                <input
+                                  className="h-11 w-full rounded-xl bg-sand/30 px-4 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                                  type="number"
+                                  step="0.01"
+                                  value={receitaEditForm.valor}
+                                  onChange={(event) =>
+                                    setReceitaEditForm((prev) => ({ ...prev, valor: event.target.value }))
+                                  }
+                                />
+                              </label>
+                            </div>
+                            <label className="space-y-1">
+                              <span className="ml-1 block text-[10px] font-bold uppercase tracking-widest text-ink/40">
+                                Descrição
+                              </span>
+                              <input
+                                className="h-11 w-full rounded-xl bg-sand/30 px-4 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                                value={receitaEditForm.descricao}
+                                onChange={(event) =>
+                                  setReceitaEditForm((prev) => ({ ...prev, descricao: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <label className="space-y-1">
+                              <span className="ml-1 block text-[10px] font-bold uppercase tracking-widest text-ink/40">
+                                Categoria
+                              </span>
+                              <input
+                                className="h-11 w-full rounded-xl bg-sand/30 px-4 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                                value={receitaEditForm.categoria}
+                                onChange={(event) =>
+                                  setReceitaEditForm((prev) => ({ ...prev, categoria: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <label className="space-y-1">
+                              <span className="ml-1 block text-[10px] font-bold uppercase tracking-widest text-ink/40">
+                                Observação
+                              </span>
+                              <input
+                                className="h-11 w-full rounded-xl bg-sand/30 px-4 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                                value={receitaEditForm.observacao}
+                                onChange={(event) =>
+                                  setReceitaEditForm((prev) => ({ ...prev, observacao: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="h-11 flex-1 rounded-xl bg-ink text-[10px] font-bold uppercase tracking-widest text-sand disabled:opacity-50"
+                                onClick={() => void saveReceitaEdit(item.id)}
+                                disabled={isSaving}
+                              >
+                                {isSaving ? "Salvando..." : "Salvar alterações"}
+                              </button>
+                              <button
+                                type="button"
+                                className="h-11 rounded-xl bg-white px-4 text-[10px] font-bold uppercase tracking-widest text-ink ring-1 ring-ink/15"
+                                onClick={cancelEditReceita}
+                                disabled={isSaving}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      }
+
+                      return (
+                        <article key={item.id} className="rounded-2xl bg-white p-4 ring-1 ring-ink/10">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <p className="text-sm font-black text-ink">{item.descricao}</p>
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-ink/45">
+                                {formatDateBr(item.data)} • {item.categoria}
+                              </p>
+                            </div>
+                            <p className="text-sm font-black text-pine">
+                              {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </p>
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              className="h-10 flex-1 rounded-xl bg-white text-[10px] font-bold uppercase tracking-widest text-ink ring-1 ring-ink/15"
+                              onClick={() => startEditReceita(item)}
+                              disabled={Boolean(savingReceitaId)}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="h-10 flex-1 rounded-xl bg-coral/10 text-[10px] font-bold uppercase tracking-widest text-coral ring-1 ring-coral/30"
+                              onClick={() => void deleteReceita(item.id)}
+                              disabled={Boolean(savingReceitaId)}
+                            >
+                              {savingReceitaId === item.id ? "Excluindo..." : "Excluir"}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           <form onSubmit={submit} className="space-y-6">
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="space-y-1">
@@ -628,8 +969,28 @@ export default function LancarPage() {
         </section>
       )}
 
-      {message && <p className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm rounded-2xl bg-pine p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl animate-bounce">{message}</p>}
-      {error && <p className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm rounded-2xl bg-coral p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl">{error}</p>}
+      {message && (
+        <div className="fixed inset-x-0 bottom-24 z-[120] flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            className="w-full max-w-sm rounded-2xl bg-pine p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl animate-bounce"
+          >
+            {message}
+          </button>
+        </div>
+      )}
+      {error && (
+        <div className="fixed inset-x-0 bottom-24 z-[120] flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => setError("")}
+            className="w-full max-w-sm rounded-2xl bg-coral p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl"
+          >
+            {error}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

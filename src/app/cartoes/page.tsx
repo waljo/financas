@@ -991,9 +991,11 @@ export default function CartoesPage() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? "Erro ao gerar totalizadores");
-      setMessage(
-        `Resumo do mes processado: ${payload.data.generated} lançamentos criados.`
-      );
+      if (Number(payload.data.generated) === 0) {
+        setMessage("RESUMO DO MES JA PROCESSADO: ESTE LANCAMENTO JA HAVIA SIDO GRAVADO.");
+      } else {
+        setMessage(`Resumo do mes processado: ${payload.data.generated} lançamentos criados.`);
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao processar fechamento");
@@ -1265,6 +1267,25 @@ export default function CartoesPage() {
                     onChange={(event) => setMoveForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
                     placeholder="1"
                   />
+                </div>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Atribuição</label>
+                  <select
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                    value={moveForm.atribuicao}
+                    onChange={(event) =>
+                      setMoveForm((prev) => ({ ...prev, atribuicao: event.target.value as Atribuicao }))
+                    }
+                  >
+                    {atribuicoes.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -1726,8 +1747,32 @@ export default function CartoesPage() {
         </div>
       )}
 
-      {message && <p className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[120] w-[90%] max-w-sm rounded-2xl bg-pine p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl animate-bounce">{message}</p>}
-      {error && <p className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[120] w-[90%] max-w-sm rounded-2xl bg-coral p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl">{error}</p>}
+      {message && (
+        <div className="fixed inset-x-0 bottom-32 z-[120] flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            className={`w-full max-w-sm rounded-2xl p-4 text-center text-xs font-black uppercase tracking-widest shadow-2xl ${
+              message.startsWith("RESUMO DO MES JA PROCESSADO")
+                ? "bg-sand text-ink ring-1 ring-ink/15"
+                : "bg-pine text-white animate-bounce"
+            }`}
+          >
+            {message}
+          </button>
+        </div>
+      )}
+      {error && (
+        <div className="fixed inset-x-0 bottom-32 z-[120] flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => setError("")}
+            className="w-full max-w-sm rounded-2xl bg-coral p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl"
+          >
+            {error}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

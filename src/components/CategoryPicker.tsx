@@ -131,7 +131,7 @@ export function CategoryPicker(props: CategoryPickerProps) {
       </label>
 
       {open ? (
-        <div className="fixed inset-0 z-40">
+        <div className="fixed inset-0 z-[120]">
           <button
             type="button"
             className="absolute inset-0 bg-ink/40"

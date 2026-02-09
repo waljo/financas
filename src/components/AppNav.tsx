@@ -19,6 +19,7 @@ const primaryLinks = [
 
 const moreLinks = [
   { href: "/relatorios", label: "Relatórios" },
+  { href: "/categorias", label: "Categorias" },
   { href: "/importar", label: "Importar" },
   { href: "/contas-fixas", label: "Contas fixas" }
 ];

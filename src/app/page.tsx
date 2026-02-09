@@ -449,100 +449,145 @@ export default function DashboardPage() {
   ];
 
   return (
-    <section className="space-y-4">
-      <header className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-        <h1 className="text-xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-ink/70">
-          Compatibilidade com a planilha: balanco = saldo real (BB + C6 + carteira) - saldo sistema.
-        </p>
+    <section className="space-y-8 pb-20">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-ink">Início</h1>
+          <p className="text-sm font-medium text-ink/50">Bom dia, Walker</p>
+        </div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sand ring-1 ring-ink/5">
+          <span className="text-xs font-bold text-ink/40">WG</span>
+        </div>
       </header>
 
-      <article
-        className={`rounded-2xl border p-5 shadow-sm ${
-          balancoValue >= 0 ? "border-pine/40 bg-pine/10" : "border-coral/40 bg-coral/10"
-        }`}
-      >
-        <p className="text-sm font-medium text-ink/70">Balanco (diferenca entre saldo real e sistema)</p>
-        <p className="mt-2 text-3xl font-bold">
-          {balancoValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-        </p>
-      </article>
-
-      <div className="grid gap-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm md:grid-cols-5">
-        <label className="text-sm">
-          Mes
-          <input
-            className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-            type="month"
-            value={month}
-            onChange={(event) => {
-              const nextMonth = event.target.value;
-              const stored = readManualBalanceForMonth(nextMonth);
-              setMonth(nextMonth);
-              setBankBalances(stored?.bankBalances ?? createEmptyBankBalances());
-              setSaldoCarteira(stored?.saldoCarteira ?? "");
-            }}
-          />
-        </label>
-        {BANK_BALANCE_FIELDS.map((item) => (
-          <label key={item.key} className="text-sm">
-            {item.label}
-            <input
-              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-              type="number"
-              value={bankBalances[item.key]}
-              onChange={(event) =>
-                setBankBalances((prev) => ({
-                  ...prev,
-                  [item.key]: event.target.value
-                }))
-              }
-            />
-          </label>
-        ))}
-        <label className="text-sm">
-          Carteira
-          <input
-            className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-            type="number"
-            value={saldoCarteira}
-            onChange={(event) => setSaldoCarteira(event.target.value)}
-          />
-        </label>
-        <div className="text-sm text-ink/70 md:pt-7">
-          Bancos (BB + C6):{" "}
-          {saldoBancosTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+      {/* Hero Balance */}
+      {!data && loading ? (
+        <div className="animate-pulse space-y-8">
+          <div className="h-48 rounded-[2rem] bg-ink/5" />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="h-24 rounded-2xl bg-ink/5" />
+            <div className="h-24 rounded-2xl bg-ink/5" />
+          </div>
         </div>
-      </div>
+      ) : (
+        <>
+          <article
+            className={`relative overflow-hidden rounded-[2rem] p-8 shadow-2xl transition-all ${
+              balancoValue >= 0 
+                ? "bg-gradient-to-br from-pine to-emerald-700 text-white" 
+                : "bg-gradient-to-br from-coral to-rose-700 text-white"
+            }`}
+          >
+            <div className="relative z-10">
+              <p className="text-xs font-bold uppercase tracking-widest opacity-80">Balanço do Mês</p>
+              <p className="mt-1 text-4xl font-black tracking-tighter">
+                {balancoValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </p>
+              <div className="mt-6 flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider backdrop-blur-md w-fit">
+                <span className={balancoValue >= 0 ? "text-mint" : "text-rose-200"}>
+                  {balancoValue >= 0 ? "● Sistema em dia" : "● Ajuste necessário"}
+                </span>
+              </div>
+            </div>
+            {/* Abstract shapes for premium feel */}
+            <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-3xl" />
+            <div className="absolute -bottom-12 -left-12 h-40 w-40 rounded-full bg-black/10 blur-3xl" />
+          </article>
 
-      <div className="flex flex-wrap items-end gap-2">
-        <button
-          type="button"
-          className="rounded-lg bg-ink px-4 py-2 text-sand"
-          onClick={refreshDashboard}
-          disabled={loading}
-        >
-          {loading ? "Carregando..." : "Atualizar"}
-        </button>
-        <button
-          type="button"
-          className="rounded-lg bg-pine px-4 py-2 text-white"
-          onClick={bootstrapSheets}
-        >
-          Bootstrap abas
-        </button>
-      </div>
+          {/* Quick Summary Grid */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">Receitas</p>
+              <p className="mt-1 text-lg font-bold text-pine">
+                {data?.receitasMes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) ?? "R$ 0,00"}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">Despesas</p>
+              <p className="mt-1 text-lg font-bold text-coral">
+                {data?.despesasMes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) ?? "R$ 0,00"}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
 
-      <p className="text-sm text-ink/70">Fonte do saldo real: planilha legada (C7/C8).</p>
+      {/* Manual Controls Section */}
+      <section className="rounded-3xl bg-sand/50 p-6 ring-1 ring-ink/5">
+        <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-ink/40">Controle de Caixa</h2>
+        <div className="grid gap-4 md:grid-cols-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase text-ink/40 ml-1">Referência</label>
+            <input
+              className="h-12 w-full rounded-xl bg-white px-4 text-sm font-bold shadow-sm ring-1 ring-ink/10 transition-all focus:ring-2 focus:ring-pine outline-none"
+              type="month"
+              value={month}
+              onChange={(event) => {
+                const nextMonth = event.target.value;
+                const stored = readManualBalanceForMonth(nextMonth);
+                setMonth(nextMonth);
+                setBankBalances(stored?.bankBalances ?? createEmptyBankBalances());
+                setSaldoCarteira(stored?.saldoCarteira ?? "");
+              }}
+            />
+          </div>
+          {BANK_BALANCE_FIELDS.map((item) => (
+            <div key={item.key} className="space-y-1">
+              <label className="text-[10px] font-bold uppercase text-ink/40 ml-1">{item.label}</label>
+              <input
+                className="h-12 w-full rounded-xl bg-white px-4 text-sm font-bold shadow-sm ring-1 ring-ink/10 transition-all focus:ring-2 focus:ring-pine outline-none"
+                type="number"
+                placeholder="0,00"
+                value={bankBalances[item.key]}
+                onChange={(event) =>
+                  setBankBalances((prev) => ({
+                    ...prev,
+                    [item.key]: event.target.value
+                  }))
+                }
+              />
+            </div>
+          ))}
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase text-ink/40 ml-1">Carteira</label>
+            <input
+              className="h-12 w-full rounded-xl bg-white px-4 text-sm font-bold shadow-sm ring-1 ring-ink/10 transition-all focus:ring-2 focus:ring-pine outline-none"
+              type="number"
+              placeholder="0,00"
+              value={saldoCarteira}
+              onChange={(event) => setSaldoCarteira(event.target.value)}
+            />
+          </div>
+        </div>
 
-      {bootstrapMsg ? <p className="text-sm text-pine">{bootstrapMsg}</p> : null}
-      {error ? <p className="rounded-lg bg-coral/20 p-3 text-sm text-coral">{error}</p> : null}
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            className="flex h-12 items-center justify-center rounded-xl bg-ink px-6 text-sm font-bold text-sand shadow-lg active:scale-95 transition-all disabled:opacity-50"
+            onClick={refreshDashboard}
+            disabled={loading}
+          >
+            {loading ? "Sincronizando..." : "Sincronizar Saldo"}
+          </button>
+          <button
+            type="button"
+            className="flex h-12 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-ink shadow-sm ring-1 ring-ink/10 active:scale-95 transition-all"
+            onClick={bootstrapSheets}
+          >
+            Reparar Conexão
+          </button>
+        </div>
+        
+        {bootstrapMsg && <p className="mt-3 text-center text-[10px] font-bold uppercase text-pine animate-pulse">{bootstrapMsg}</p>}
+        {error && <p className="mt-3 rounded-xl bg-coral/10 p-3 text-center text-xs font-bold text-coral">{error}</p>}
+      </section>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        {cards.map((card) => (
-          <article key={card.label} className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-            <p className="text-sm text-ink/70">{card.label}</p>
-            <p className="mt-2 text-xl font-semibold">
+      {/* Secondary Metrics */}
+      <div className="grid gap-4 md:grid-cols-4">
+        {cards.filter(c => !["Receitas do mes", "Despesas do mes"].includes(c.label)).map((card) => (
+          <article key={card.label} className="group rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30 group-hover:text-ink/50 transition-colors">{card.label}</p>
+            <p className="mt-2 text-xl font-black tracking-tight text-ink">
               {card.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
             </p>
           </article>

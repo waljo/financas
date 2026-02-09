@@ -64,10 +64,10 @@ type FixedStatus = {
 };
 
 const fixedStatusClass: Record<FixedStatus["tone"], string> = {
-  mint: "bg-mint/40 text-ink",
+  mint: "bg-mint/20 text-pine",
   coral: "bg-coral/20 text-coral",
   amber: "bg-amber-100 text-amber-800",
-  ink: "bg-ink/10 text-ink"
+  ink: "bg-ink/10 text-ink/60"
 };
 
 export default function LancarPage() {
@@ -180,7 +180,7 @@ export default function LancarPage() {
     const launchedCount = launchCountByConta.get(contaId) ?? 0;
     if (launchedCount > 0) {
       return {
-        label: launchedCount > 1 ? `Ja lancada (${launchedCount}x)` : "Ja lancada",
+        label: launchedCount > 1 ? `Lancada (${launchedCount}x)` : "Lancada",
         tone: "mint"
       };
     }
@@ -189,7 +189,7 @@ export default function LancarPage() {
     const days = diffDays(today, dueDate);
     if (days < 0) return { label: "Vencida", tone: "coral" };
     if (days === 0) return { label: "Vence hoje", tone: "amber" };
-    if (days <= 7) return { label: "Prox. 7 dias", tone: "amber" };
+    if (days <= 7) return { label: "Próx. 7 dias", tone: "amber" };
     return { label: "No prazo", tone: "ink" };
   }
 
@@ -225,7 +225,7 @@ export default function LancarPage() {
 
     const value = parseMoneyInput(fixedValues[conta.id] ?? "");
     if (!Number.isFinite(value) || value === 0) {
-      setError(`Informe um valor valido para ${conta.nome} antes de lancar.`);
+      setError(`Informe um valor válido para ${conta.nome}.`);
       return;
     }
 
@@ -233,7 +233,7 @@ export default function LancarPage() {
     const targetDate = action === "today" ? today : dueDate;
     const launchedCount = launchCountByConta.get(conta.id) ?? 0;
     if (launchedCount > 0) {
-      const confirmed = confirm(`${conta.nome} ja foi lancada neste mes. Deseja lancar novamente?`);
+      const confirmed = confirm(`${conta.nome} já foi lançada. Lançar novamente?`);
       if (!confirmed) return;
     }
 
@@ -251,7 +251,7 @@ export default function LancarPage() {
         metodo: "outro",
         parcela_total: null,
         parcela_numero: null,
-        observacao: `[CONTA_FIXA:${conta.id}] Lancado pelo quadro de contas fixas`,
+        observacao: `[CONTA_FIXA:${conta.id}] Lançado pelo quadro de contas fixas`,
         quem_pagou: "WALKER"
       };
 
@@ -263,13 +263,13 @@ export default function LancarPage() {
 
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.message ?? "Erro ao lancar conta fixa");
+        throw new Error(result.message ?? "Erro ao lançar conta fixa");
       }
 
-      setMessage(`Conta fixa "${conta.nome}" lancada para ${formatDateBr(targetDate)}.`);
+      setMessage(`"${conta.nome}" salva com sucesso.`);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao lancar conta fixa");
+      setError(err instanceof Error ? err.message : "Erro ao lançar conta fixa");
     } finally {
       setSavingFixedKey("");
     }
@@ -277,10 +277,7 @@ export default function LancarPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (mode !== "despesa_avulsa" && mode !== "receita") {
-      setError("Selecione Despesas avulsas ou Receitas para abrir o formulario.");
-      return;
-    }
+    if (mode !== "despesa_avulsa" && mode !== "receita") return;
 
     setSaving(true);
     setError("");
@@ -311,10 +308,10 @@ export default function LancarPage() {
 
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.message ?? "Erro ao salvar lancamento");
+        throw new Error(result.message ?? "Erro ao salvar lançamento");
       }
 
-      setMessage("Lancamento salvo com sucesso.");
+      setMessage("Lançamento salvo com sucesso.");
       setForm(
         mode === "receita"
           ? {
@@ -335,334 +332,304 @@ export default function LancarPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <header className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-        <h1 className="text-xl font-semibold">Novo lancamento</h1>
-        <p className="text-sm text-ink/70">Escolha o tipo de lancamento para ver apenas o fluxo necessario.</p>
+    <section className="space-y-8 pb-20">
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight text-ink">Novo lançamento</h1>
+        <p className="text-sm font-medium text-ink/50">Como você quer registrar hoje?</p>
       </header>
 
-      <section className="space-y-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-semibold">Como voce quer lancar?</h2>
-        <div className="grid gap-2 md:grid-cols-3">
-          <button
-            type="button"
-            onClick={() => selectMode("despesa_avulsa")}
-            className={[
-              "rounded-lg border px-3 py-3 text-left text-sm transition",
-              mode === "despesa_avulsa" ? "border-ink bg-ink text-sand" : "border-ink/20 bg-white"
-            ].join(" ")}
-          >
-            <p className="font-semibold">Despesas avulsas</p>
-            <p className={mode === "despesa_avulsa" ? "text-sand/80" : "text-ink/70"}>
-              Compras e pagamentos fora da rotina fixa.
-            </p>
-          </button>
+      {/* Mode Selector - Premium Cards */}
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => selectMode("despesa_avulsa")}
+          className={[
+            "group relative overflow-hidden rounded-2xl border p-5 text-left transition-all active:scale-95",
+            mode === "despesa_avulsa" 
+              ? "border-ink bg-ink text-sand shadow-lg" 
+              : "border-ink/5 bg-white text-ink shadow-sm hover:border-ink/20"
+          ].join(" ")}
+        >
+          <div className="relative z-10">
+            <p className="text-xs font-bold uppercase tracking-widest opacity-50 group-hover:opacity-80">Avulsa</p>
+            <p className="mt-1 text-lg font-black tracking-tight">Despesa</p>
+          </div>
+          {mode === "despesa_avulsa" && (
+            <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full bg-white/10 blur-xl" />
+          )}
+        </button>
 
-          <button
-            type="button"
-            onClick={() => selectMode("despesa_fixa")}
-            className={[
-              "rounded-lg border px-3 py-3 text-left text-sm transition",
-              mode === "despesa_fixa" ? "border-ink bg-ink text-sand" : "border-ink/20 bg-white"
-            ].join(" ")}
-          >
-            <p className="font-semibold">Despesas fixas</p>
-            <p className={mode === "despesa_fixa" ? "text-sand/80" : "text-ink/70"}>
-              Vencimentos do mes com lancamento rapido.
-            </p>
-          </button>
+        <button
+          type="button"
+          onClick={() => selectMode("despesa_fixa")}
+          className={[
+            "group relative overflow-hidden rounded-2xl border p-5 text-left transition-all active:scale-95",
+            mode === "despesa_fixa" 
+              ? "border-pine bg-pine text-white shadow-lg" 
+              : "border-ink/5 bg-white text-ink shadow-sm hover:border-ink/20"
+          ].join(" ")}
+        >
+          <div className="relative z-10">
+            <p className="text-xs font-bold uppercase tracking-widest opacity-50 group-hover:opacity-80">Fixa</p>
+            <p className="mt-1 text-lg font-black tracking-tight">Vencimento</p>
+          </div>
+          {mode === "despesa_fixa" && (
+            <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full bg-white/10 blur-xl" />
+          )}
+        </button>
 
-          <button
-            type="button"
-            onClick={() => selectMode("receita")}
-            className={[
-              "rounded-lg border px-3 py-3 text-left text-sm transition",
-              mode === "receita" ? "border-ink bg-ink text-sand" : "border-ink/20 bg-white"
-            ].join(" ")}
-          >
-            <p className="font-semibold">Receitas</p>
-            <p className={mode === "receita" ? "text-sand/80" : "text-ink/70"}>Salarios, repasses e entradas.</p>
-          </button>
-        </div>
-        <p className="text-sm text-ink/70">
-          {mode === "despesa_avulsa"
-            ? "Fluxo ativo: despesas avulsas."
-            : mode === "despesa_fixa"
-              ? "Fluxo ativo: despesas fixas."
-              : mode === "receita"
-                ? "Fluxo ativo: receitas."
-                : "Selecione um fluxo para continuar."}
-        </p>
+        <button
+          type="button"
+          onClick={() => selectMode("receita")}
+          className={[
+            "group relative overflow-hidden rounded-2xl border p-5 text-left transition-all active:scale-95",
+            mode === "receita" 
+              ? "border-emerald-600 bg-emerald-600 text-white shadow-lg" 
+              : "border-ink/5 bg-white text-ink shadow-sm hover:border-ink/20"
+          ].join(" ")}
+        >
+          <div className="relative z-10">
+            <p className="text-xs font-bold uppercase tracking-widest opacity-50 group-hover:opacity-80">Entrada</p>
+            <p className="mt-1 text-lg font-black tracking-tight">Receita</p>
+          </div>
+          {mode === "receita" && (
+            <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full bg-white/10 blur-xl" />
+          )}
+        </button>
       </section>
 
-      {mode === "despesa_fixa" ? (
-        <section className="space-y-3 rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">Contas fixas do mes ({currentMonth})</h2>
-            <p className="text-sm text-ink/70">
-              Veja vencimentos e lance com 1 clique sem abrir a planilha legada.
-            </p>
+      {mode === "despesa_fixa" && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Contas do Mês</h2>
+              <p className="text-[10px] font-bold text-pine uppercase tracking-wider">
+                {contasLancadasNoMes} de {contasFixas.length} lançadas
+              </p>
+            </div>
+            <button
+              type="button"
+              className="h-8 rounded-full bg-ink/5 px-3 text-[10px] font-bold uppercase tracking-wider text-ink/60 transition-colors hover:bg-ink/10"
+              onClick={loadData}
+              disabled={loadingData}
+            >
+              {loadingData ? "Atualizando..." : "Sincronizar"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="rounded-lg border border-ink/20 px-3 py-2 text-sm"
-            onClick={loadData}
-            disabled={loadingData || Boolean(savingFixedKey)}
-          >
-            {loadingData ? "Atualizando..." : "Atualizar quadro"}
-          </button>
-        </div>
 
-        <p className="text-sm text-ink/70">
-          {contasLancadasNoMes} de {contasFixas.length} conta(s) fixa(s) ja lancada(s) neste mes.
-        </p>
-
-        {contasFixas.length === 0 ? (
-          <p className="rounded-lg bg-sand p-3 text-sm text-ink/70">Nenhuma conta fixa ativa encontrada.</p>
-        ) : (
-          <div className="space-y-3">
+          <div className="grid gap-4">
             {contasOrdenadas.map((conta) => {
               const dueDate = dueDateByConta.get(conta.id) ?? dueDateForMonth(currentMonth, conta.dia_vencimento);
               const daysUntilDue = diffDays(today, dueDate);
               const status = fixedStatus(conta.id);
-              const launchedCount = launchCountByConta.get(conta.id) ?? 0;
               const savingToday = savingFixedKey === `${conta.id}:today`;
               const savingDue = savingFixedKey === `${conta.id}:due`;
 
               return (
-                <article key={conta.id} className="rounded-xl border border-ink/10 bg-sand p-3">
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_220px_auto] md:items-end">
+                <article key={conta.id} className="relative overflow-hidden rounded-3xl bg-white p-6 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-medium">{conta.nome}</h3>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${fixedStatusClass[status.tone]}`}>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-black tracking-tight text-ink">{conta.nome}</h3>
+                        <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${fixedStatusClass[status.tone]}`}>
                           {status.label}
                         </span>
                       </div>
-                      <p className="text-sm text-ink/70">
-                        Vencimento: {formatDateBr(dueDate)}
-                        {daysUntilDue === 0
-                          ? " (hoje)"
-                          : daysUntilDue > 0
-                            ? ` (em ${daysUntilDue} dia(s))`
-                            : ` (${Math.abs(daysUntilDue)} dia(s) atrasada)`}
-                      </p>
-                      <p className="text-xs text-ink/60">
-                        Categoria: {conta.categoria || "-"} | Atribuicao: {conta.atribuicao}
-                        {launchedCount > 0 ? ` | Lancamentos no mes: ${launchedCount}` : ""}
+                      <p className="text-xs font-bold text-ink/40">
+                        Vence {formatDateBr(dueDate)} 
+                        <span className="ml-1 opacity-50">
+                          {daysUntilDue === 0 ? " (hoje)" : daysUntilDue > 0 ? ` (em ${daysUntilDue} dias)` : ` (${Math.abs(daysUntilDue)}d atrasada)`}
+                        </span>
                       </p>
                     </div>
 
-                    <label className="text-sm">
-                      Valor para lancar
+                    <div className="w-full sm:w-40">
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-ink/30 ml-1">Valor</label>
                       <input
-                        className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                        className="mt-1 h-12 w-full rounded-xl bg-sand/50 px-4 text-sm font-bold ring-1 ring-ink/5 focus:ring-2 focus:ring-pine outline-none transition-all"
                         type="number"
                         step="0.01"
                         value={fixedValues[conta.id] ?? ""}
-                        onChange={(event) =>
-                          setFixedValues((prev) => ({ ...prev, [conta.id]: event.target.value }))
-                        }
+                        onChange={(event) => setFixedValues((prev) => ({ ...prev, [conta.id]: event.target.value }))}
                         placeholder="0.00"
                       />
-                    </label>
-
-                    <div className="flex flex-wrap gap-2 md:justify-end">
-                      <button
-                        type="button"
-                        className="rounded-lg bg-ink px-3 py-2 text-sm font-medium text-sand"
-                        onClick={() => launchFixed(conta, "today")}
-                        disabled={Boolean(savingFixedKey)}
-                      >
-                        {savingToday ? "Salvando..." : "Lancar hoje"}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-ink/20 px-3 py-2 text-sm"
-                        onClick={() => launchFixed(conta, "due")}
-                        disabled={Boolean(savingFixedKey)}
-                      >
-                        {savingDue ? "Salvando..." : "Lancar no vencimento"}
-                      </button>
                     </div>
+                  </div>
+
+                  <div className="mt-6 flex gap-2">
+                    <button
+                      type="button"
+                      className="flex-1 h-12 rounded-xl bg-ink text-[10px] font-bold uppercase tracking-widest text-sand shadow-lg active:scale-95 transition-all disabled:opacity-50"
+                      onClick={() => launchFixed(conta, "today")}
+                      disabled={Boolean(savingFixedKey)}
+                    >
+                      {savingToday ? "Salvando..." : "Lançar Hoje"}
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 h-12 rounded-xl bg-white text-[10px] font-bold uppercase tracking-widest text-ink ring-1 ring-ink/10 active:scale-95 transition-all disabled:opacity-50"
+                      onClick={() => launchFixed(conta, "due")}
+                      disabled={Boolean(savingFixedKey)}
+                    >
+                      {savingDue ? "Salvando..." : "Vencimento"}
+                    </button>
                   </div>
                 </article>
               );
             })}
           </div>
-        )}
         </section>
-      ) : null}
+      )}
 
-      {mode === "despesa_avulsa" || mode === "receita" ? (
-        <section className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-        <header className="mb-3">
-          <h2 className="text-lg font-semibold">
-            {mode === "receita" ? "Lancamento de receita" : "Lancamento de despesa avulsa"}
-          </h2>
-          <p className="text-sm text-ink/70">
-            {mode === "receita"
-              ? "Formulario simplificado para entradas de dinheiro."
-              : "Use para despesas fora do quadro de contas fixas."}
-          </p>
-        </header>
+      {(mode === "despesa_avulsa" || mode === "receita") && (
+        <section className="rounded-[2.5rem] bg-white p-8 shadow-sm ring-1 ring-ink/5">
+          <header className="mb-8">
+            <h2 className="text-xl font-black tracking-tight text-ink">
+              {mode === "receita" ? "Detalhes da Receita" : "Detalhes da Despesa"}
+            </h2>
+            <p className="text-sm font-bold text-ink/30">Preencha os campos abaixo com atenção.</p>
+          </header>
 
-        <form onSubmit={submit} className="grid gap-3">
-          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <label className="text-sm">
-              Data
-              <input
-                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                type="date"
-                value={form.data}
-                onChange={(event) => setForm((prev) => ({ ...prev, data: event.target.value }))}
-                required
-              />
-            </label>
-
-            <p className="rounded-lg bg-sand px-3 py-2 text-sm text-ink/70">
-              Tipo selecionado: <strong>{mode === "receita" ? "Receita" : "Despesa avulsa"}</strong>
-            </p>
-          </div>
-
-          <label className="text-sm">
-            Descricao
-            <input
-              className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-              value={form.descricao}
-              onChange={(event) => setForm((prev) => ({ ...prev, descricao: event.target.value }))}
-              required
-              placeholder="Ex.: Condominio"
-            />
-          </label>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <CategoryPicker
-              label="Categoria"
-              value={form.categoria}
-              onChange={(value) => setForm((prev) => ({ ...prev, categoria: value }))}
-              required
-              allowCreate
-              placeholder={mode === "receita" ? "RECEITAS" : "Moradia, Saude..."}
-            />
-
-            <label className="text-sm">
-              Valor
-              <input
-                className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                type="number"
-                step="0.01"
-                value={form.valor}
-                onChange={(event) => setForm((prev) => ({ ...prev, valor: event.target.value }))}
-                required
-              />
-              <span className="text-xs text-ink/60">
-                Valores podem ser negativos para ajustes de reconciliacao.
-              </span>
-            </label>
-          </div>
-
-          {mode === "despesa_avulsa" ? (
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="text-sm">
-                Atribuicao
-                <select
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={form.atribuicao}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, atribuicao: event.target.value as Lancamento["atribuicao"] }))
-                  }
-                >
-                  {atribuicoes.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="text-sm">
-                Metodo
-                <select
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={form.metodo}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, metodo: event.target.value as Lancamento["metodo"] }))
-                  }
-                >
-                  {metodos.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="text-sm">
-                Quem pagou
-                <select
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={form.quem_pagou}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, quem_pagou: event.target.value as Lancamento["quem_pagou"] }))
-                  }
-                >
-                  <option value="WALKER">WALKER</option>
-                  <option value="DEA">DEA</option>
-                </select>
-              </label>
-            </div>
-          ) : null}
-
-          {mode === "despesa_avulsa" ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-sm">
-                Parcela total (opcional)
+          <form onSubmit={submit} className="space-y-6">
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Data</label>
                 <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  type="number"
-                  min="1"
-                  value={form.parcela_total}
-                  onChange={(event) => setForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
+                  className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                  type="date"
+                  value={form.data}
+                  onChange={(event) => setForm((prev) => ({ ...prev, data: event.target.value }))}
+                  required
                 />
-              </label>
+              </div>
 
-              <label className="text-sm">
-                Numero da parcela (opcional)
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  type="number"
-                  min="1"
-                  value={form.parcela_numero}
-                  onChange={(event) => setForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
-                />
-              </label>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Valor</label>
+                <div className="relative">
+                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-xs font-black text-ink/20">R$</span>
+                  <input
+                    className="h-14 w-full rounded-2xl bg-sand/30 pl-11 pr-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                    type="number"
+                    step="0.01"
+                    value={form.valor}
+                    onChange={(event) => setForm((prev) => ({ ...prev, valor: event.target.value }))}
+                    required
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
             </div>
-          ) : null}
 
-          <label className="text-sm">
-            Observacao
-            <textarea
-              className="mt-1 min-h-24 w-full rounded-lg border border-ink/20 px-3 py-2"
-              value={form.observacao}
-              onChange={(event) => setForm((prev) => ({ ...prev, observacao: event.target.value }))}
-            />
-          </label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Descrição</label>
+              <input
+                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                value={form.descricao}
+                onChange={(event) => setForm((prev) => ({ ...prev, descricao: event.target.value }))}
+                required
+                placeholder="Ex.: Mercado Semanal"
+              />
+            </div>
 
-          <button
-            type="submit"
-            className="w-full rounded-lg bg-ink px-4 py-3 font-semibold text-sand md:w-auto"
-            disabled={saving}
-          >
-            {saving ? "Salvando..." : "Salvar lancamento"}
-          </button>
-        </form>
+            <div className="space-y-1">
+              <CategoryPicker
+                label="Categoria"
+                value={form.categoria}
+                onChange={(value) => setForm((prev) => ({ ...prev, categoria: value }))}
+                required
+                allowCreate
+                placeholder={mode === "receita" ? "RECEITAS" : "Selecione..."}
+              />
+            </div>
+
+            {mode === "despesa_avulsa" && (
+              <>
+                <div className="grid gap-6 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Atribuição</label>
+                    <select
+                      className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                      value={form.atribuicao}
+                      onChange={(event) => setForm((prev) => ({ ...prev, atribuicao: event.target.value as Lancamento["atribuicao"] }))}
+                    >
+                      {atribuicoes.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Método</label>
+                    <select
+                      className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                      value={form.metodo}
+                      onChange={(event) => setForm((prev) => ({ ...prev, metodo: event.target.value as Lancamento["metodo"] }))}
+                    >
+                      {metodos.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Quem Pagou</label>
+                    <select
+                      className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                      value={form.quem_pagou}
+                      onChange={(event) => setForm((prev) => ({ ...prev, quem_pagou: event.target.value as Lancamento["quem_pagou"] }))}
+                    >
+                      <option value="WALKER">WALKER</option>
+                      <option value="DEA">DEA</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Total de Parcelas</label>
+                    <input
+                      className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                      type="number"
+                      min="1"
+                      value={form.parcela_total}
+                      onChange={(event) => setForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
+                      placeholder="1"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Parcela Atual</label>
+                    <input
+                      className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                      type="number"
+                      min="1"
+                      value={form.parcela_numero}
+                      onChange={(event) => setForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
+                      placeholder="1"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Observação</label>
+              <textarea
+                className="min-h-32 w-full rounded-2xl bg-sand/30 p-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all resize-none"
+                value={form.observacao}
+                onChange={(event) => setForm((prev) => ({ ...prev, observacao: event.target.value }))}
+                placeholder="Algo mais a registrar?"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="h-16 w-full rounded-2xl bg-ink text-sm font-black uppercase tracking-widest text-sand shadow-2xl shadow-ink/20 active:scale-[0.98] transition-all disabled:opacity-50"
+              disabled={saving}
+            >
+              {saving ? "Salvando..." : "Finalizar Lançamento"}
+            </button>
+          </form>
         </section>
-      ) : null}
+      )}
 
-      {message ? <p className="rounded-lg bg-mint/40 p-3 text-sm text-ink">{message}</p> : null}
-      {error ? <p className="rounded-lg bg-coral/20 p-3 text-sm text-coral">{error}</p> : null}
+      {message && <p className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm rounded-2xl bg-pine p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl animate-bounce">{message}</p>}
+      {error && <p className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm rounded-2xl bg-coral p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl">{error}</p>}
     </section>
   );
 }

@@ -74,12 +74,13 @@ function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-function monthLastDay(month: string): string {
+function monthFixedDay(month: string, day = 10): string {
   const [yearRaw, monthRaw] = month.split("-");
   const year = Number(yearRaw);
   const monthNumber = Number(monthRaw);
   const lastDay = new Date(year, monthNumber, 0).getDate();
-  return `${month}-${pad2(lastDay)}`;
+  const safeDay = Math.min(Math.max(day, 1), lastDay);
+  return `${month}-${pad2(safeDay)}`;
 }
 
 export function defaultAtribuicaoForCard(cartao: CartaoCredito | null): Atribuicao {
@@ -280,7 +281,7 @@ export function totalizadoresToLancamentos(params: {
   categoria: string;
 }): Lancamento[] {
   const now = new Date().toISOString();
-  const baseData = monthLastDay(params.totalizadores.mes);
+  const baseData = monthFixedDay(params.totalizadores.mes, 10);
   const bank = params.totalizadores.banco;
   const items: Array<{ suffix: "WALKER" | "AMBOS" | "DEA"; atribuicao: Atribuicao; valor: number }> = [
     { suffix: "WALKER", atribuicao: "WALKER", valor: params.totalizadores.porAtribuicao.WALKER },

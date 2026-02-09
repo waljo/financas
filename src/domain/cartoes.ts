@@ -150,6 +150,7 @@ export function computeCartaoTotalizadores(params: {
   movimentos: CartaoMovimentoComAlocacoes[];
   mes: string;
   banco: BancoCartao;
+  cartaoId?: string;
 }): TotalizadoresCartao & {
   pendentes: number;
   parcelasDoMes: number;
@@ -202,6 +203,7 @@ export function computeCartaoTotalizadores(params: {
 
   for (const movimento of params.movimentos) {
     if (!movimento.cartao || movimento.cartao.banco !== params.banco) continue;
+    if (params.cartaoId && movimento.cartao_id !== params.cartaoId) continue;
 
     const parcelaTotal = movimento.parcela_total ?? null;
     const ehParcelado = Boolean(parcelaTotal && parcelaTotal > 1);

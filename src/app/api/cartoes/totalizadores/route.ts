@@ -11,14 +11,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const parsed = cartaoTotalizadoresQuerySchema.parse({
       mes: searchParams.get("mes"),
-      banco: searchParams.get("banco")
+      banco: searchParams.get("banco"),
+      cartaoId: searchParams.get("cartaoId") ?? undefined
     });
 
     const movimentos = await readCartaoMovimentosComAlocacoes();
     const totalizadores = computeCartaoTotalizadores({
       movimentos,
       mes: parsed.mes,
-      banco: parsed.banco
+      banco: parsed.banco,
+      cartaoId: parsed.cartaoId
     });
 
     return jsonOk({ data: totalizadores });

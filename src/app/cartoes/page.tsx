@@ -353,6 +353,7 @@ export default function CartoesPage() {
 
   const [cardForm, setCardForm] = useState(buildEmptyCardForm);
   const [showCardModal, setShowCardModal] = useState(false);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
 
   const [moveForm, setMoveForm] = useState({
     cartao_id: "",
@@ -391,8 +392,25 @@ export default function CartoesPage() {
   const [runningImport, setRunningImport] = useState(false);
 
   const cardById = useMemo(() => new Map(cards.map((item) => [item.id, item])), [cards]);
-  const pending = useMemo(() => movimentos.filter((item) => item.status === "pendente"), [movimentos]);
-  const lancados = useMemo(() => movimentos.filter((item) => item.status === "conciliado"), [movimentos]);
+  const selectedCard = useMemo(
+    () => (selectedCardId ? cardById.get(selectedCardId) ?? null : null),
+    [cardById, selectedCardId]
+  );
+  const defaultCard = useMemo(() => cards.find((item) => item.ativo) ?? cards[0] ?? null, [cards]);
+  const pending = useMemo(
+    () =>
+      movimentos.filter(
+        (item) => item.status === "pendente" && (!selectedCardId || item.cartao_id === selectedCardId)
+      ),
+    [movimentos, selectedCardId]
+  );
+  const lancados = useMemo(
+    () =>
+      movimentos.filter(
+        (item) => item.status === "conciliado" && (!selectedCardId || item.cartao_id === selectedCardId)
+      ),
+    [movimentos, selectedCardId]
+  );
   const totalTodosCartoes = useMemo(
     () => lancados.reduce((sum, item) => sum + item.valor, 0),
     [lancados]
@@ -415,24 +433,42 @@ export default function CartoesPage() {
     setLoading(true);
     setError("");
     try {
+      const totalizadoresParams = new URLSearchParams({
+        mes: month,
+        banco: bank
+      });
+      if (selectedCardId) {
+        totalizadoresParams.set("cartaoId", selectedCardId);
+      }
+
       const [cardsRes, movRes, totalizadoresRes] = await Promise.all([
         fetch("/api/cartoes/cards"),
         fetch(`/api/cartoes/movimentos?mes=${month}`),
-        fetch(`/api/cartoes/totalizadores?mes=${month}&banco=${bank}`)
+        fetch(`/api/cartoes/totalizadores?${totalizadoresParams.toString()}`)
       ]);
 
       const cardsPayload = await cardsRes.json();
       if (!cardsRes.ok) throw new Error(cardsPayload.message ?? "Erro ao carregar cartoes");
       const rows = cardsPayload.data ?? [];
       setCards(rows);
-      setMoveForm((prev) => {
-        if (prev.cartao_id || !rows[0]) return prev;
-        return {
-          ...prev,
-          cartao_id: rows[0].id,
-          atribuicao: rows[0].padrao_atribuicao
-        };
-      });
+      const defaultCardRow = rows.find((item: CartaoCredito) => item.ativo) ?? rows[0] ?? null;
+      const selectedStillExists = selectedCardId
+        ? rows.some((item: CartaoCredito) => item.id === selectedCardId)
+        : false;
+
+      if (selectedCardId && !selectedStillExists) {
+        setSelectedCardId(null);
+      }
+
+      const effectiveCardId = selectedStillExists
+        ? selectedCardId
+        : defaultCardRow?.id ?? "";
+      const effectiveCard = rows.find((item: CartaoCredito) => item.id === effectiveCardId) ?? defaultCardRow;
+      setMoveForm((prev) => ({
+        ...prev,
+        cartao_id: effectiveCardId,
+        atribuicao: effectiveCard?.padrao_atribuicao ?? prev.atribuicao
+      }));
       setImportCardId((prev) => prev || rows[0]?.id || "");
 
       const movPayload = await movRes.json();
@@ -449,7 +485,7 @@ export default function CartoesPage() {
     } finally {
       setLoading(false);
     }
-  }, [bank, month]);
+  }, [bank, month, selectedCardId]);
 
   useEffect(() => {
     load();
@@ -556,6 +592,32 @@ export default function CartoesPage() {
     resetEditMoveForm();
     setError("");
     setMessage("");
+  }
+
+  function clearCardFilter() {
+    setSelectedCardId(null);
+    if (defaultCard) {
+      setMoveForm((prev) => ({
+        ...prev,
+        cartao_id: defaultCard.id,
+        atribuicao: defaultCard.padrao_atribuicao
+      }));
+    }
+  }
+
+  function toggleCardFilter(card: CartaoCredito) {
+    if (selectedCardId === card.id) {
+      clearCardFilter();
+      return;
+    }
+
+    setBank(card.banco);
+    setSelectedCardId(card.id);
+    setMoveForm((prev) => ({
+      ...prev,
+      cartao_id: card.id,
+      atribuicao: card.padrao_atribuicao
+    }));
   }
 
   function startEditCard(card: CartaoCredito) {
@@ -981,25 +1043,41 @@ export default function CartoesPage() {
       {/* Card Carousel */}
       <section className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x no-scrollbar">
         {cards.filter(c => c.ativo).map((card) => (
-          <article 
-            key={card.id} 
-            onClick={() => startEditCard(card)}
-            className="flex-shrink-0 w-[280px] snap-center rounded-[2.5rem] bg-gradient-to-br from-ink to-slate-800 p-8 text-sand shadow-xl cursor-pointer active:scale-95 transition-all"
+          <article
+            key={card.id}
+            onClick={() => toggleCardFilter(card)}
+            className={`relative flex-shrink-0 w-[280px] snap-center rounded-[2.5rem] p-8 shadow-xl cursor-pointer active:scale-95 transition-all ${
+              selectedCardId === card.id
+                ? "bg-gradient-to-br from-pine to-emerald-700 text-white ring-2 ring-pine/30"
+                : "bg-gradient-to-br from-ink to-slate-800 text-sand"
+            }`}
           >
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                startEditCard(card);
+              }}
+              className="absolute right-4 top-4 rounded-full bg-white/15 px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-white backdrop-blur-sm hover:bg-white/25"
+            >
+              Editar
+            </button>
             <div className="flex flex-col h-full justify-between gap-12">
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">Cartão</p>
                   <h3 className="text-xl font-black tracking-tighter leading-tight">{card.nome}</h3>
                 </div>
-                <div className="h-8 w-12 rounded-lg bg-white/10 flex items-center justify-center backdrop-blur-md">
-                  <span className="text-[10px] font-bold opacity-60">{card.banco}</span>
-                </div>
               </div>
               <div className="flex justify-between items-end">
                 <div>
                   <p className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">Final</p>
-                  <p className="text-sm font-bold tracking-widest leading-none">•••• {card.final_cartao || "0000"}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold tracking-widest leading-none">•••• {card.final_cartao || "0000"}</p>
+                    <span className="inline-flex h-6 min-w-9 items-center justify-center rounded-md bg-white/10 px-2 text-[9px] font-bold uppercase backdrop-blur-md">
+                      {card.banco}
+                    </span>
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">Titular</p>
@@ -1025,6 +1103,21 @@ export default function CartoesPage() {
         </button>
       </section>
 
+      {selectedCard && (
+        <section className="rounded-2xl border border-pine/20 bg-pine/10 px-4 py-3 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-ink">
+            Filtro ativo: <strong>{selectedCard.nome}</strong>
+          </p>
+          <button
+            type="button"
+            onClick={clearCardFilter}
+            className="rounded-lg bg-white px-3 py-1 text-[11px] font-bold text-ink ring-1 ring-ink/10"
+          >
+            Limpar
+          </button>
+        </section>
+      )}
+
       {/* Metrics Grid */}
       <section className="grid gap-4 sm:grid-cols-3">
         <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
@@ -1046,6 +1139,12 @@ export default function CartoesPage() {
           </p>
         </article>
       </section>
+
+      {selectedCard && (
+        <p className="text-xs font-semibold text-ink/60 -mt-1">
+          Totalizadores filtrados pelo cartão ativo.
+        </p>
+      )}
 
       {/* Manual Purchase Form - PREMIUM */}
       <section className="rounded-[2.5rem] bg-white p-8 shadow-sm ring-1 ring-ink/5 space-y-6">
@@ -1269,9 +1368,16 @@ export default function CartoesPage() {
           type="button"
           onClick={generateTotals}
           disabled={savingTotals}
-          className="w-full h-14 rounded-2xl bg-pine text-xs font-black uppercase tracking-widest text-white shadow-xl active:scale-95 transition-all disabled:opacity-50"
+          className="w-full h-16 rounded-2xl bg-pine text-xs font-black uppercase tracking-widest text-white shadow-xl active:scale-95 transition-all disabled:opacity-50"
         >
-          {savingTotals ? "Processando..." : `Processar Fechamento`}
+          {savingTotals ? (
+            "Processando..."
+          ) : (
+            <span className="flex flex-col items-center leading-tight">
+              <span>Processar Fechamento</span>
+              <span className="text-[9px] font-semibold normal-case tracking-normal opacity-90">Gravar no legado</span>
+            </span>
+          )}
         </button>
       </section>
 

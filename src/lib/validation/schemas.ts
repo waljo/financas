@@ -207,7 +207,8 @@ export const cartaoImportRunSchema = cartaoImportPreviewSchema.extend({
 
 export const cartaoTotalizadoresQuerySchema = z.object({
   mes: z.string().regex(/^\d{4}-\d{2}$/),
-  banco: z.enum(BANCOS_CARTAO)
+  banco: z.enum(BANCOS_CARTAO),
+  cartaoId: z.string().uuid().optional()
 });
 
 export const cartaoGerarLancamentosSchema = cartaoTotalizadoresQuerySchema.extend({

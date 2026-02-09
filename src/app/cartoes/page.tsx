@@ -352,6 +352,7 @@ export default function CartoesPage() {
   const [classifyingBulk, setClassifyingBulk] = useState(false);
 
   const [cardForm, setCardForm] = useState(buildEmptyCardForm);
+  const [showCardModal, setShowCardModal] = useState(false);
 
   const [moveForm, setMoveForm] = useState({
     cartao_id: "",
@@ -405,6 +406,10 @@ export default function CartoesPage() {
     totalParceladoEmAberto: 0,
     totalParceladoEmAbertoProjetado: 0
   };
+  const editingMovement = useMemo(
+    () => movimentos.find((item) => item.id === editMoveForm.id) ?? null,
+    [movimentos, editMoveForm.id]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -563,12 +568,14 @@ export default function CartoesPage() {
       padrao_atribuicao: card.padrao_atribuicao,
       ativo: card.ativo
     });
+    setShowCardModal(true);
     setMessage("");
     setError("");
   }
 
   function cancelEditCard() {
     setCardForm(buildEmptyCardForm());
+    setShowCardModal(false);
     setMessage("");
     setError("");
   }
@@ -592,6 +599,7 @@ export default function CartoesPage() {
       if (!response.ok) throw new Error(payload.message ?? "Erro ao salvar cartao");
       setMessage(editing ? "Cartao atualizado." : "Cartao salvo.");
       setCardForm(buildEmptyCardForm());
+      setShowCardModal(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar cartao");
@@ -924,7 +932,7 @@ export default function CartoesPage() {
   }
 
   return (
-    <section className="space-y-8 pb-32">
+    <section className="space-y-8 pb-40">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-ink">Cartões</h1>
@@ -970,28 +978,6 @@ export default function CartoesPage() {
         </button>
       </section>
 
-      {/* Metrics Grid */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30">Parcelas do Mês</p>
-          <p className="mt-1 text-xl font-black tracking-tight text-ink">
-            {totalizadoresView.parcelasDoMes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-          </p>
-        </article>
-        <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30">Aberto (Realizado)</p>
-          <p className="mt-1 text-xl font-black tracking-tight text-ink">
-            {totalizadoresView.totalParceladoEmAberto.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-          </p>
-        </article>
-        <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30">Aberto (Projetado)</p>
-          <p className="mt-1 text-xl font-black tracking-tight text-pine">
-            {totalizadoresView.totalParceladoEmAbertoProjetado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-          </p>
-        </article>
-      </section>
-
       {/* Card Carousel */}
       <section className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x no-scrollbar">
         {cards.filter(c => c.ativo).map((card) => (
@@ -1024,7 +1010,12 @@ export default function CartoesPage() {
           </article>
         ))}
         <button 
-          onClick={() => { setCardForm(buildEmptyCardForm()); }}
+          onClick={() => {
+            setCardForm(buildEmptyCardForm());
+            setShowCardModal(true);
+            setError("");
+            setMessage("");
+          }}
           className="flex-shrink-0 w-[140px] snap-center rounded-[2.5rem] bg-sand border-2 border-dashed border-ink/10 flex flex-col items-center justify-center gap-2 text-ink/20 hover:text-ink/40 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
@@ -1034,11 +1025,131 @@ export default function CartoesPage() {
         </button>
       </section>
 
+      {/* Metrics Grid */}
+      <section className="grid gap-4 sm:grid-cols-3">
+        <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30">Parcelas do Mês</p>
+          <p className="mt-1 text-xl font-black tracking-tight text-ink">
+            {totalizadoresView.parcelasDoMes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          </p>
+        </article>
+        <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30">Aberto (Realizado)</p>
+          <p className="mt-1 text-xl font-black tracking-tight text-ink">
+            {totalizadoresView.totalParceladoEmAberto.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          </p>
+        </article>
+        <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30">Aberto (Projetado)</p>
+          <p className="mt-1 text-xl font-black tracking-tight text-pine">
+            {totalizadoresView.totalParceladoEmAbertoProjetado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+          </p>
+        </article>
+      </section>
+
+      {/* Manual Purchase Form - PREMIUM */}
+      <section className="rounded-[2.5rem] bg-white p-8 shadow-sm ring-1 ring-ink/5 space-y-6">
+        <header>
+          <h2 className="text-lg font-black tracking-tight text-ink uppercase tracking-widest">Lançamento Manual</h2>
+          <p className="text-xs font-bold text-ink/30 mt-1">Registrar compra para {month}</p>
+        </header>
+        <form onSubmit={saveManualMovement} className="grid gap-6">
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Cartão</label>
+              <select
+                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                value={moveForm.cartao_id}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  const card = cardById.get(id);
+                  setMoveForm((prev) => ({
+                    ...prev,
+                    cartao_id: id,
+                    atribuicao: card?.padrao_atribuicao ?? prev.atribuicao
+                  }));
+                }}
+                required
+              >
+                <option value="">Selecione...</option>
+                {cards.filter((item) => item.ativo).map((item) => (
+                  <option key={item.id} value={item.id}>{item.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Data</label>
+              <input
+                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                type="date"
+                value={moveForm.data}
+                onChange={(event) => setMoveForm((prev) => ({ ...prev, data: event.target.value }))}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Descrição</label>
+              <input
+                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                value={moveForm.descricao}
+                onChange={(event) => setMoveForm((prev) => ({ ...prev, descricao: event.target.value }))}
+                required
+                placeholder="O que foi comprado?"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Valor da Parcela</label>
+              <input
+                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                type="number"
+                step="0.01"
+                value={moveForm.valor}
+                onChange={(event) => setMoveForm((prev) => ({ ...prev, valor: event.target.value }))}
+                required
+                placeholder="0,00"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-6 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Parcela Atual</label>
+              <input
+                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                type="number"
+                min="1"
+                value={moveForm.parcela_numero}
+                onChange={(event) => setMoveForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
+                placeholder="1"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Total de Parcelas</label>
+              <input
+                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                type="number"
+                min="1"
+                value={moveForm.parcela_total}
+                onChange={(event) => setMoveForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
+                placeholder="1"
+              />
+            </div>
+          </div>
+
+          <button disabled={savingMove} className="h-14 w-full rounded-2xl bg-ink text-sm font-black uppercase tracking-widest text-sand shadow-lg active:scale-95 transition-all">
+            {savingMove ? "Salvando..." : "Registrar Compra"}
+          </button>
+        </form>
+      </section>
+
       {/* Pending Items - Action List */}
       {pending.length > 0 && (
         <section className="space-y-4">
           <header className="flex items-center justify-between px-1">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Classificações Pendentes ({pending.length})</h2>
+            <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Pendentes de Classificação ({pending.length})</h2>
             <button 
               onClick={classifyPendingByDefault}
               disabled={classifyingBulk}
@@ -1086,7 +1197,7 @@ export default function CartoesPage() {
       {/* Main List - Compact Cards */}
       <section className="space-y-4">
         <div className="flex items-center justify-between px-1">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Gastos Lançados</h2>
+          <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Últimos Gastos</h2>
           <div className="h-px flex-1 bg-ink/5 mx-4" />
         </div>
 
@@ -1164,23 +1275,293 @@ export default function CartoesPage() {
         </button>
       </section>
 
-      {/* Modals/Sheets for Edit & Import would go here, simplified for this step */}
-      {cardForm.id && (
-        <div className="fixed inset-0 z-50 bg-ink/50 backdrop-blur-sm flex items-center justify-center p-4">
-           <form onSubmit={saveCard} className="w-full max-w-md rounded-[2.5rem] bg-white p-8 shadow-2xl space-y-4 animate-in zoom-in-95">
-              <h3 className="text-lg font-black text-ink">Editar Cartão</h3>
-              {/* Simplified form for brevity, full fields assumed from context */}
-              <input className="h-12 w-full rounded-xl bg-sand/50 px-4" value={cardForm.nome} onChange={e => setCardForm({...cardForm, nome: e.target.value})} placeholder="Nome" />
-              <div className="flex gap-2">
-                <button className="flex-1 h-12 rounded-xl bg-ink text-sand font-bold">Salvar</button>
-                <button type="button" onClick={cancelEditCard} className="h-12 px-6 rounded-xl bg-sand text-ink font-bold">Cancelar</button>
+      {editMoveForm.id && (
+        <div className="fixed inset-0 z-50 bg-ink/50 backdrop-blur-sm flex items-end justify-center p-0 sm:items-center sm:p-4">
+          <form
+            onSubmit={saveEditedMovement}
+            className="w-full max-w-xl rounded-t-[2.5rem] sm:rounded-[2.5rem] bg-white p-8 shadow-2xl space-y-4 animate-in slide-in-from-bottom-full sm:zoom-in-95"
+          >
+            <header className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-ink">Editar gasto</h3>
+                <p className="text-xs text-ink/50">Ajuste dados ou exclua este lançamento.</p>
               </div>
-           </form>
+              <button
+                type="button"
+                onClick={cancelEditMovement}
+                className="h-10 px-4 rounded-xl bg-sand text-ink font-bold"
+              >
+                Fechar
+              </button>
+            </header>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Cartão</label>
+                <select
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none appearance-none"
+                  value={editMoveForm.cartao_id}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, cartao_id: e.target.value })}
+                  required
+                >
+                  <option value="">Selecione...</option>
+                  {cards.filter((item) => item.ativo).map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nome}
+                      {item.final_cartao ? ` (final ${item.final_cartao})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Data</label>
+                <input
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                  type="date"
+                  value={editMoveForm.data}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, data: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Valor</label>
+                <input
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                  type="number"
+                  step="0.01"
+                  value={editMoveForm.valor}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, valor: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Atribuição</label>
+                <select
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none appearance-none disabled:opacity-60"
+                  value={editMoveForm.atribuicao}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, atribuicao: e.target.value as Atribuicao })}
+                  disabled={editMoveForm.splitDeaAmbos}
+                >
+                  {atribuicoes.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Descrição</label>
+              <input
+                className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                value={editMoveForm.descricao}
+                onChange={(e) => setEditMoveForm({ ...editMoveForm, descricao: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Parcela número</label>
+                <input
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                  type="number"
+                  min="1"
+                  value={editMoveForm.parcela_numero}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, parcela_numero: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Parcela total</label>
+                <input
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                  type="number"
+                  min="1"
+                  value={editMoveForm.parcela_total}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, parcela_total: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 rounded-xl bg-sand/50 px-4 py-3 ring-1 ring-ink/10">
+              <input
+                type="checkbox"
+                checked={editMoveForm.splitDeaAmbos}
+                onChange={(e) =>
+                  setEditMoveForm((prev) => ({
+                    ...prev,
+                    splitDeaAmbos: e.target.checked,
+                    valorDea: e.target.checked ? prev.valorDea : ""
+                  }))
+                }
+              />
+              <span className="text-xs font-bold uppercase tracking-wider text-ink/70">Dividir em DEA + AMBOS</span>
+            </label>
+
+            {editMoveForm.splitDeaAmbos && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Valor DEA</label>
+                <input
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                  type="number"
+                  step="0.01"
+                  value={editMoveForm.valorDea}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, valorDea: e.target.value })}
+                  required
+                />
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Observação</label>
+              <textarea
+                className="min-h-24 w-full rounded-xl bg-sand/50 px-4 py-3 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                value={editMoveForm.observacao}
+                onChange={(e) => setEditMoveForm({ ...editMoveForm, observacao: e.target.value })}
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (editingMovement) void deleteMovement(editingMovement);
+                }}
+                disabled={!editingMovement || deletingMoveId === editMoveForm.id || savingEditMove}
+                className="h-12 px-5 rounded-xl bg-coral text-white font-bold disabled:opacity-50"
+              >
+                {deletingMoveId === editMoveForm.id ? "Excluindo..." : "Excluir"}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEditMovement}
+                className="h-12 px-6 rounded-xl bg-sand text-ink font-bold"
+                disabled={savingEditMove}
+              >
+                Cancelar
+              </button>
+              <button
+                className="flex-1 h-12 rounded-xl bg-ink text-sand font-bold disabled:opacity-50"
+                disabled={savingEditMove}
+              >
+                {savingEditMove ? "Salvando..." : "Salvar alterações"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
-      {message && <p className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm rounded-2xl bg-pine p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl animate-bounce">{message}</p>}
-      {error && <p className="fixed bottom-24 left-1/2 -translate-x-1/2 w-[90%] max-w-sm rounded-2xl bg-coral p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl">{error}</p>}
+      {showCardModal && (
+        <div className="fixed inset-0 z-50 bg-ink/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <form onSubmit={saveCard} className="w-full max-w-md rounded-[2.5rem] bg-white p-8 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <h3 className="text-lg font-black text-ink">{cardForm.id ? "Editar Cartão" : "Novo Cartão"}</h3>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Nome</label>
+              <input
+                className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                value={cardForm.nome}
+                onChange={(e) => setCardForm({ ...cardForm, nome: e.target.value })}
+                placeholder="Ex.: C6 WALKER FISICO"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Banco</label>
+                <select
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none appearance-none"
+                  value={cardForm.banco}
+                  onChange={(e) => setCardForm({ ...cardForm, banco: e.target.value as BancoCartao })}
+                >
+                  {bancos.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Titular</label>
+                <select
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none appearance-none"
+                  value={cardForm.titular}
+                  onChange={(e) =>
+                    setCardForm({
+                      ...cardForm,
+                      titular: e.target.value as CartaoCredito["titular"]
+                    })
+                  }
+                >
+                  <option value="WALKER">WALKER</option>
+                  <option value="DEA">DEA</option>
+                  <option value="JULIA">JULIA</option>
+                  <option value="OUTRO">OUTRO</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Final cartão</label>
+                <input
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
+                  value={cardForm.final_cartao}
+                  onChange={(e) => setCardForm({ ...cardForm, final_cartao: e.target.value })}
+                  placeholder="Ex.: 5684"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Atrib. default</label>
+                <select
+                  className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none appearance-none"
+                  value={cardForm.padrao_atribuicao}
+                  onChange={(e) =>
+                    setCardForm({
+                      ...cardForm,
+                      padrao_atribuicao: e.target.value as Atribuicao
+                    })
+                  }
+                >
+                  {atribuicoes.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 rounded-xl bg-sand/50 px-4 py-3 ring-1 ring-ink/10">
+              <input
+                type="checkbox"
+                checked={cardForm.ativo}
+                onChange={(e) => setCardForm({ ...cardForm, ativo: e.target.checked })}
+              />
+              <span className="text-xs font-bold uppercase tracking-wider text-ink/70">Cartão ativo</span>
+            </label>
+
+            <div className="flex gap-2 pt-1">
+              <button className="flex-1 h-12 rounded-xl bg-ink text-sand font-bold">
+                {cardForm.id ? "Salvar alterações" : "Salvar cartão"}
+              </button>
+              <button type="button" onClick={cancelEditCard} className="h-12 px-6 rounded-xl bg-sand text-ink font-bold">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {message && <p className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[120] w-[90%] max-w-sm rounded-2xl bg-pine p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl animate-bounce">{message}</p>}
+      {error && <p className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[120] w-[90%] max-w-sm rounded-2xl bg-coral p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl">{error}</p>}
     </section>
   );
 }

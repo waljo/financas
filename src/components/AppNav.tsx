@@ -3,18 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const links = [
+const bottomLinks = [
   { href: "/", label: "Início", icon: (active: boolean) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
       <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
     </svg>
-  )},
-  { href: "/lancar", label: "Lançar", icon: (active: boolean) => (
-    <div className={`p-3 rounded-2xl -mt-8 shadow-xl transition-all ${active ? "bg-ink text-sand scale-110" : "bg-pine text-white"}`}>
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-6 h-6">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-      </svg>
-    </div>
   )},
   { href: "/cartoes", label: "Cartões", icon: (active: boolean) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
@@ -30,6 +23,7 @@ const links = [
 
 export function AppNav() {
   const pathname = usePathname();
+  const launchActive = pathname === "/lancar";
 
   return (
     <>
@@ -51,27 +45,45 @@ export function AppNav() {
       </nav>
 
       {/* Bottom Bar fixa */}
-      <nav className="fixed bottom-0 left-0 z-50 w-full bg-white/90 backdrop-blur-xl border-t border-ink/5 px-6 pb-6 pt-2">
-        <div className="mx-auto flex max-w-lg items-center justify-between">
-          {links.map((link) => {
+      <nav className="fixed bottom-0 left-0 z-50 w-full bg-white/90 backdrop-blur-xl border-t border-ink/5 px-6 pb-6 pt-3">
+        <div className="relative mx-auto max-w-sm">
+          <Link
+            href="/lancar"
+            className={`absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/2 rounded-2xl p-3 shadow-xl transition-all ${
+              launchActive ? "bg-ink text-sand scale-110" : "bg-pine text-white"
+            }`}
+            aria-label="Lançar"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          </Link>
+
+          <div className="grid grid-cols-5 items-end justify-items-center">
+          {bottomLinks.map((link) => {
             const active = pathname === link.href;
+            const colClass =
+              link.href === "/"
+                ? "col-start-2"
+                : link.href === "/cartoes"
+                  ? "col-start-4"
+                  : "col-start-5";
             return (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`flex flex-col items-center gap-1 transition-all ${
+                className={`${colClass} flex flex-col items-center gap-1 transition-all ${
                   active ? "text-ink" : "text-ink/30"
                 }`}
               >
                 {link.icon(active)}
-                {link.label !== "Lançar" && (
-                  <span className={`text-[10px] font-bold uppercase tracking-widest ${active ? "opacity-100" : "opacity-0"}`}>
-                    {link.label}
-                  </span>
-                )}
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${active ? "opacity-100" : "opacity-0"}`}>
+                  {link.label}
+                </span>
               </Link>
             );
           })}
+          </div>
         </div>
       </nav>
     </>

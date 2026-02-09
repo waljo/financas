@@ -354,6 +354,8 @@ export default function CartoesPage() {
   const [cardForm, setCardForm] = useState(buildEmptyCardForm);
   const [showCardModal, setShowCardModal] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [manualExpanded, setManualExpanded] = useState(false);
+  const [expensesExpanded, setExpensesExpanded] = useState(false);
 
   const [moveForm, setMoveForm] = useState({
     cartao_id: "",
@@ -415,6 +417,12 @@ export default function CartoesPage() {
     () => lancados.reduce((sum, item) => sum + item.valor, 0),
     [lancados]
   );
+  const despesasCountAll = useMemo(
+    () => movimentos.filter((item) => item.status === "pendente" || item.status === "conciliado").length,
+    [movimentos]
+  );
+  const despesasCountFiltered = pending.length + lancados.length;
+  const despesasCountDisplay = selectedCardId ? despesasCountFiltered : despesasCountAll;
   const totalizadoresView: Totalizadores = totalizadores ?? {
     mes: month,
     banco: bank,
@@ -494,6 +502,12 @@ export default function CartoesPage() {
   useEffect(() => {
     setImportMesRef(month);
   }, [month]);
+
+  useEffect(() => {
+    if (selectedCardId) {
+      setExpensesExpanded(true);
+    }
+  }, [selectedCardId]);
 
   function parseImportLines(text: string): ImportLine[] {
     const rows = text
@@ -596,6 +610,7 @@ export default function CartoesPage() {
 
   function clearCardFilter() {
     setSelectedCardId(null);
+    setExpensesExpanded(false);
     if (defaultCard) {
       setMoveForm((prev) => ({
         ...prev,
@@ -613,6 +628,7 @@ export default function CartoesPage() {
 
     setBank(card.banco);
     setSelectedCardId(card.id);
+    setExpensesExpanded(true);
     setMoveForm((prev) => ({
       ...prev,
       cartao_id: card.id,
@@ -1146,190 +1162,234 @@ export default function CartoesPage() {
         </p>
       )}
 
-      {/* Manual Purchase Form - PREMIUM */}
-      <section className="rounded-[2.5rem] bg-white p-8 shadow-sm ring-1 ring-ink/5 space-y-6">
-        <header>
-          <h2 className="text-lg font-black tracking-tight text-ink uppercase tracking-widest">Lançamento Manual</h2>
-          <p className="text-xs font-bold text-ink/30 mt-1">Registrar compra para {month}</p>
-        </header>
-        <form onSubmit={saveManualMovement} className="grid gap-6">
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Cartão</label>
-              <select
-                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
-                value={moveForm.cartao_id}
-                onChange={(event) => {
-                  const id = event.target.value;
-                  const card = cardById.get(id);
-                  setMoveForm((prev) => ({
-                    ...prev,
-                    cartao_id: id,
-                    atribuicao: card?.padrao_atribuicao ?? prev.atribuicao
-                  }));
-                }}
-                required
-              >
-                <option value="">Selecione...</option>
-                {cards.filter((item) => item.ativo).map((item) => (
-                  <option key={item.id} value={item.id}>{item.nome}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Data</label>
-              <input
-                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
-                type="date"
-                value={moveForm.data}
-                onChange={(event) => setMoveForm((prev) => ({ ...prev, data: event.target.value }))}
-                required
-              />
-            </div>
+      {/* Manual Purchase Form - Expansível */}
+      <section className="rounded-[2.5rem] bg-white p-6 shadow-sm ring-1 ring-ink/5">
+        <button
+          type="button"
+          onClick={() => setManualExpanded((prev) => !prev)}
+          className="w-full flex items-center justify-between gap-4 text-left"
+        >
+          <div>
+            <h2 className="text-lg font-black tracking-tight text-ink uppercase tracking-widest">Lançamento Manual</h2>
+            <p className="text-xs font-bold text-ink/30 mt-1">Registrar compra para {month}</p>
           </div>
+          <span className={`text-ink/40 transition-transform ${manualExpanded ? "rotate-180" : ""}`}>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </span>
+        </button>
 
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Descrição</label>
-              <input
-                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
-                value={moveForm.descricao}
-                onChange={(event) => setMoveForm((prev) => ({ ...prev, descricao: event.target.value }))}
-                required
-                placeholder="O que foi comprado?"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Valor da Parcela</label>
-              <input
-                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
-                type="number"
-                step="0.01"
-                value={moveForm.valor}
-                onChange={(event) => setMoveForm((prev) => ({ ...prev, valor: event.target.value }))}
-                required
-                placeholder="0,00"
-              />
-            </div>
+        {manualExpanded && (
+          <div className="mt-6 border-t border-ink/10 pt-6">
+            <form onSubmit={saveManualMovement} className="grid gap-6">
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Cartão</label>
+                  <select
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                    value={moveForm.cartao_id}
+                    onChange={(event) => {
+                      const id = event.target.value;
+                      const card = cardById.get(id);
+                      setMoveForm((prev) => ({
+                        ...prev,
+                        cartao_id: id,
+                        atribuicao: card?.padrao_atribuicao ?? prev.atribuicao
+                      }));
+                    }}
+                    required
+                  >
+                    <option value="">Selecione...</option>
+                    {cards.filter((item) => item.ativo).map((item) => (
+                      <option key={item.id} value={item.id}>{item.nome}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Data</label>
+                  <input
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                    type="date"
+                    value={moveForm.data}
+                    onChange={(event) => setMoveForm((prev) => ({ ...prev, data: event.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Descrição</label>
+                  <input
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                    value={moveForm.descricao}
+                    onChange={(event) => setMoveForm((prev) => ({ ...prev, descricao: event.target.value }))}
+                    required
+                    placeholder="O que foi comprado?"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Valor da Parcela</label>
+                  <input
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                    type="number"
+                    step="0.01"
+                    value={moveForm.valor}
+                    onChange={(event) => setMoveForm((prev) => ({ ...prev, valor: event.target.value }))}
+                    required
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Parcela Atual</label>
+                  <input
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                    type="number"
+                    min="1"
+                    value={moveForm.parcela_numero}
+                    onChange={(event) => setMoveForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
+                    placeholder="1"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Total de Parcelas</label>
+                  <input
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                    type="number"
+                    min="1"
+                    value={moveForm.parcela_total}
+                    onChange={(event) => setMoveForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
+                    placeholder="1"
+                  />
+                </div>
+              </div>
+
+              <button disabled={savingMove} className="h-14 w-full rounded-2xl bg-ink text-sm font-black uppercase tracking-widest text-sand shadow-lg active:scale-95 transition-all">
+                {savingMove ? "Salvando..." : "Registrar Compra"}
+              </button>
+            </form>
           </div>
-
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Parcela Atual</label>
-              <input
-                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
-                type="number"
-                min="1"
-                value={moveForm.parcela_numero}
-                onChange={(event) => setMoveForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
-                placeholder="1"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Total de Parcelas</label>
-              <input
-                className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
-                type="number"
-                min="1"
-                value={moveForm.parcela_total}
-                onChange={(event) => setMoveForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
-                placeholder="1"
-              />
-            </div>
-          </div>
-
-          <button disabled={savingMove} className="h-14 w-full rounded-2xl bg-ink text-sm font-black uppercase tracking-widest text-sand shadow-lg active:scale-95 transition-all">
-            {savingMove ? "Salvando..." : "Registrar Compra"}
-          </button>
-        </form>
+        )}
       </section>
 
-      {/* Pending Items - Action List */}
-      {pending.length > 0 && (
-        <section className="space-y-4">
-          <header className="flex items-center justify-between px-1">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Pendentes de Classificação ({pending.length})</h2>
-            <button 
-              onClick={classifyPendingByDefault}
-              disabled={classifyingBulk}
-              className="text-[10px] font-bold text-pine uppercase tracking-wider underline underline-offset-4"
-            >
-              {classifyingBulk ? "Aguarde..." : "Classificar Todos"}
-            </button>
-          </header>
-          
-          <div className="grid gap-3">
-            {pending.map((item) => (
-              <article key={item.id} className="group rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-ink/5 transition-all active:scale-[0.98]">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-black tracking-tight text-ink leading-tight">{item.descricao}</h3>
-                    <p className="text-xs font-bold text-ink/30 mt-1 uppercase tracking-wider">
-                      {item.data} • {cardById.get(item.cartao_id)?.nome ?? "Cartão"}
-                    </p>
-                  </div>
-                  <p className="text-xl font-black tracking-tighter text-ink">
-                    {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                  </p>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => classifyMovement(item, [{ atribuicao: "AMBOS", valor: item.valor }])}
-                    className="h-10 rounded-xl bg-sand text-[8px] font-black uppercase tracking-widest text-ink/60 hover:bg-ink hover:text-sand transition-all"
-                  >
-                    Marcar AMBOS
-                  </button>
-                  <button
-                    onClick={() => splitDeaAmbos(item)}
-                    className="h-10 rounded-xl bg-sand text-[8px] font-black uppercase tracking-widest text-ink/60 hover:bg-ink hover:text-sand transition-all"
-                  >
-                    Dividir DEA/AMBOS
-                  </button>
-                </div>
-              </article>
-            ))}
+      {/* Despesas no cartão - Expansível */}
+      <section className="rounded-[2.5rem] bg-white p-6 shadow-sm ring-1 ring-ink/5">
+        <button
+          type="button"
+          onClick={() => setExpensesExpanded((prev) => !prev)}
+          className="w-full flex items-center justify-between gap-4 text-left"
+        >
+          <div>
+            <h2 className="text-lg font-black tracking-tight text-ink uppercase tracking-widest">Despesas no Cartão</h2>
+            <p className="text-xs font-bold text-ink/30 mt-1">
+              {selectedCard ? `Filtrando por ${selectedCard.nome}` : "Visualização geral de todos os cartões"}
+            </p>
           </div>
-        </section>
-      )}
-
-      {/* Main List - Compact Cards */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between px-1">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Últimos Gastos</h2>
-          <div className="h-px flex-1 bg-ink/5 mx-4" />
-        </div>
-
-        {lancados.length === 0 ? (
-          <div className="py-12 text-center rounded-[2rem] bg-sand/30 border border-dashed border-ink/10">
-            <p className="text-xs font-bold uppercase tracking-widest text-ink/20">Sem gastos neste mês</p>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex min-w-10 justify-center rounded-full bg-sand px-3 py-1 text-xs font-black text-ink">
+              {despesasCountDisplay}
+            </span>
+            <span className={`text-ink/40 transition-transform ${expensesExpanded ? "rotate-180" : ""}`}>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </span>
           </div>
-        ) : (
-          <div className="grid gap-3">
-            {lancados.map((item) => (
-              <article key={item.id} onClick={() => startEditMovement(item)} className="group relative flex items-center justify-between rounded-3xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md cursor-pointer active:scale-[0.99]">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-2xl bg-sand flex flex-col items-center justify-center">
-                    <span className="text-[10px] font-black text-ink/20 leading-none">{item.data.split('-')[2]}</span>
-                    <span className="text-[8px] font-bold text-ink/20 uppercase tracking-tighter">{item.data.split('-')[1]}</span>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-black tracking-tight text-ink leading-tight line-clamp-1">{item.descricao}</h3>
-                    <p className="text-[10px] font-bold text-ink/30 uppercase tracking-widest mt-0.5">
-                      {cardById.get(item.cartao_id)?.nome ?? "Cartão"}
-                    </p>
-                  </div>
+        </button>
+
+        {expensesExpanded && (
+          <div className="mt-6 border-t border-ink/10 pt-6 space-y-8">
+            {pending.length > 0 && (
+              <section className="space-y-4">
+                <header className="flex items-center justify-between px-1">
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Pendentes de Classificação ({pending.length})</h2>
+                  <button
+                    onClick={classifyPendingByDefault}
+                    disabled={classifyingBulk}
+                    className="text-[10px] font-bold text-pine uppercase tracking-wider underline underline-offset-4"
+                  >
+                    {classifyingBulk ? "Aguarde..." : "Classificar Todos"}
+                  </button>
+                </header>
+
+                <div className="grid gap-3">
+                  {pending.map((item) => (
+                    <article key={item.id} className="group rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-ink/5 transition-all active:scale-[0.98]">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="text-lg font-black tracking-tight text-ink leading-tight">{item.descricao}</h3>
+                          <p className="text-xs font-bold text-ink/30 mt-1 uppercase tracking-wider">
+                            {item.data} • {cardById.get(item.cartao_id)?.nome ?? "Cartão"}
+                          </p>
+                        </div>
+                        <p className="text-xl font-black tracking-tighter text-ink">
+                          {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => classifyMovement(item, [{ atribuicao: "AMBOS", valor: item.valor }])}
+                          className="h-10 rounded-xl bg-sand text-[8px] font-black uppercase tracking-widest text-ink/60 hover:bg-ink hover:text-sand transition-all"
+                        >
+                          Marcar AMBOS
+                        </button>
+                        <button
+                          onClick={() => splitDeaAmbos(item)}
+                          className="h-10 rounded-xl bg-sand text-[8px] font-black uppercase tracking-widest text-ink/60 hover:bg-ink hover:text-sand transition-all"
+                        >
+                          Dividir DEA/AMBOS
+                        </button>
+                      </div>
+                    </article>
+                  ))}
                 </div>
-                <div className="text-right">
-                  <p className="text-base font-black tracking-tighter text-ink">
-                    {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                  </p>
-                  <p className="text-[8px] font-bold text-ink/20 uppercase tracking-[0.1em] mt-0.5">
-                    {item.origem}
-                  </p>
+              </section>
+            )}
+
+            <section className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Últimos Gastos</h2>
+                <div className="h-px flex-1 bg-ink/5 mx-4" />
+              </div>
+
+              {lancados.length === 0 ? (
+                <div className="py-12 text-center rounded-[2rem] bg-sand/30 border border-dashed border-ink/10">
+                  <p className="text-xs font-bold uppercase tracking-widest text-ink/20">Sem gastos neste mês</p>
                 </div>
-              </article>
-            ))}
+              ) : (
+                <div className="grid gap-3">
+                  {lancados.map((item) => (
+                    <article key={item.id} onClick={() => startEditMovement(item)} className="group relative flex items-center justify-between rounded-3xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md cursor-pointer active:scale-[0.99]">
+                      <div className="flex items-center gap-4">
+                        <div className="h-12 w-12 rounded-2xl bg-sand flex flex-col items-center justify-center">
+                          <span className="text-[10px] font-black text-ink/20 leading-none">{item.data.split('-')[2]}</span>
+                          <span className="text-[8px] font-bold text-ink/20 uppercase tracking-tighter">{item.data.split('-')[1]}</span>
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black tracking-tight text-ink leading-tight line-clamp-1">{item.descricao}</h3>
+                          <p className="text-[10px] font-bold text-ink/30 uppercase tracking-widest mt-0.5">
+                            {cardById.get(item.cartao_id)?.nome ?? "Cartão"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-base font-black tracking-tighter text-ink">
+                          {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </p>
+                        <p className="text-[8px] font-bold text-ink/20 uppercase tracking-[0.1em] mt-0.5">
+                          {item.origem}
+                        </p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         )}
       </section>

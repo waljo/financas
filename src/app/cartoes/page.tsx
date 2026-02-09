@@ -92,6 +92,7 @@ type ImportColumnKey =
   | "observacao";
 
 type ImportColumnMap = Record<ImportColumnKey, number>;
+type SplitMode = "none" | "DEA_AMBOS" | "WALKER_AMBOS";
 
 const defaultImportColumnMap: ImportColumnMap = {
   data: 0,
@@ -366,8 +367,8 @@ export default function CartoesPage() {
     parcela_total: "",
     observacao: "",
     atribuicao: "WALKER" as Atribuicao,
-    splitDeaAmbos: false,
-    valorDea: ""
+    splitMode: "none" as SplitMode,
+    splitValor: ""
   });
 
   const [editMoveForm, setEditMoveForm] = useState({
@@ -380,8 +381,8 @@ export default function CartoesPage() {
     parcela_total: "",
     observacao: "",
     atribuicao: "WALKER" as Atribuicao,
-    splitDeaAmbos: false,
-    valorDea: "",
+    splitMode: "none" as SplitMode,
+    splitValor: "",
     origem: "manual" as "manual" | "fatura"
   });
 
@@ -570,17 +571,20 @@ export default function CartoesPage() {
       parcela_total: "",
       observacao: "",
       atribuicao: "WALKER",
-      splitDeaAmbos: false,
-      valorDea: "",
+      splitMode: "none",
+      splitValor: "",
       origem: "manual"
     });
   }
 
   function startEditMovement(movimento: CartaoMovimentoComAlocacoes) {
     const dea = movimento.alocacoes.find((item) => item.atribuicao === "DEA");
+    const walker = movimento.alocacoes.find((item) => item.atribuicao === "WALKER");
     const ambos = movimento.alocacoes.find((item) => item.atribuicao === "AMBOS");
-    const split = Boolean(dea && ambos && movimento.alocacoes.length === 2);
-    const atribuicaoSingle = split
+    const splitDeaAmbos = Boolean(dea && ambos && movimento.alocacoes.length === 2);
+    const splitWalkerAmbos = Boolean(walker && ambos && movimento.alocacoes.length === 2);
+    const splitMode: SplitMode = splitDeaAmbos ? "DEA_AMBOS" : splitWalkerAmbos ? "WALKER_AMBOS" : "none";
+    const atribuicaoSingle = splitMode !== "none"
       ? "AMBOS"
       : (movimento.alocacoes[0]?.atribuicao ?? movimento.cartao?.padrao_atribuicao ?? "AMBOS");
 
@@ -594,8 +598,13 @@ export default function CartoesPage() {
       parcela_total: movimento.parcela_total ? String(movimento.parcela_total) : "",
       observacao: movimento.observacao,
       atribuicao: atribuicaoSingle,
-      splitDeaAmbos: split,
-      valorDea: split && dea ? dea.valor.toFixed(2) : "",
+      splitMode,
+      splitValor:
+        splitMode === "DEA_AMBOS" && dea
+          ? dea.valor.toFixed(2)
+          : splitMode === "WALKER_AMBOS" && walker
+            ? walker.valor.toFixed(2)
+            : "",
       origem: movimento.origem
     });
     setError("");
@@ -699,16 +708,26 @@ export default function CartoesPage() {
       }
 
       let alocacoes: Array<{ atribuicao: Atribuicao; valor: number }> = [];
-      if (moveForm.splitDeaAmbos) {
-        const valorDea = parseMoney(moveForm.valorDea);
-        if (!Number.isFinite(valorDea) || valorDea <= 0 || valorDea >= valor) {
-          throw new Error("No split DEA/AMBOS, informe um valor DEA valido menor que o total");
+      if (moveForm.splitMode !== "none") {
+        const splitValor = parseMoney(moveForm.splitValor);
+        if (!Number.isFinite(splitValor) || splitValor <= 0 || splitValor >= valor) {
+          throw new Error(
+            moveForm.splitMode === "DEA_AMBOS"
+              ? "No split DEA/AMBOS, informe um valor DEA valido menor que o total"
+              : "No split WALKER/AMBOS, informe um valor WALKER valido menor que o total"
+          );
         }
-        const valorAmbos = Number((valor - valorDea).toFixed(2));
-        alocacoes = [
-          { atribuicao: "DEA", valor: Number(valorDea.toFixed(2)) },
-          { atribuicao: "AMBOS", valor: valorAmbos }
-        ];
+        const valorAmbos = Number((valor - splitValor).toFixed(2));
+        alocacoes =
+          moveForm.splitMode === "DEA_AMBOS"
+            ? [
+                { atribuicao: "DEA", valor: Number(splitValor.toFixed(2)) },
+                { atribuicao: "AMBOS", valor: valorAmbos }
+              ]
+            : [
+                { atribuicao: "WALKER", valor: Number(splitValor.toFixed(2)) },
+                { atribuicao: "AMBOS", valor: valorAmbos }
+              ];
       } else {
         alocacoes = [{ atribuicao: moveForm.atribuicao, valor: Number(valor.toFixed(2)) }];
       }
@@ -745,8 +764,8 @@ export default function CartoesPage() {
         parcela_numero: "",
         parcela_total: "",
         observacao: "",
-        splitDeaAmbos: false,
-        valorDea: ""
+        splitMode: "none",
+        splitValor: ""
       }));
       await load();
     } catch (err) {
@@ -771,16 +790,26 @@ export default function CartoesPage() {
       }
 
       let alocacoes: Array<{ atribuicao: Atribuicao; valor: number }>;
-      if (editMoveForm.splitDeaAmbos) {
-        const valorDea = parseMoney(editMoveForm.valorDea);
-        if (!Number.isFinite(valorDea) || valorDea <= 0 || valorDea >= valor) {
-          throw new Error("No split DEA/AMBOS, informe um valor DEA valido menor que o total");
+      if (editMoveForm.splitMode !== "none") {
+        const splitValor = parseMoney(editMoveForm.splitValor);
+        if (!Number.isFinite(splitValor) || splitValor <= 0 || splitValor >= valor) {
+          throw new Error(
+            editMoveForm.splitMode === "DEA_AMBOS"
+              ? "No split DEA/AMBOS, informe um valor DEA valido menor que o total"
+              : "No split WALKER/AMBOS, informe um valor WALKER valido menor que o total"
+          );
         }
-        const valorAmbos = Number((valor - valorDea).toFixed(2));
-        alocacoes = [
-          { atribuicao: "DEA", valor: Number(valorDea.toFixed(2)) },
-          { atribuicao: "AMBOS", valor: valorAmbos }
-        ];
+        const valorAmbos = Number((valor - splitValor).toFixed(2));
+        alocacoes =
+          editMoveForm.splitMode === "DEA_AMBOS"
+            ? [
+                { atribuicao: "DEA", valor: Number(splitValor.toFixed(2)) },
+                { atribuicao: "AMBOS", valor: valorAmbos }
+              ]
+            : [
+                { atribuicao: "WALKER", valor: Number(splitValor.toFixed(2)) },
+                { atribuicao: "AMBOS", valor: valorAmbos }
+              ];
       } else {
         alocacoes = [{ atribuicao: editMoveForm.atribuicao, valor: Number(valor.toFixed(2)) }];
       }
@@ -1279,6 +1308,7 @@ export default function CartoesPage() {
                     onChange={(event) =>
                       setMoveForm((prev) => ({ ...prev, atribuicao: event.target.value as Atribuicao }))
                     }
+                    disabled={moveForm.splitMode !== "none"}
                   >
                     {atribuicoes.map((item) => (
                       <option key={item} value={item}>
@@ -1287,7 +1317,44 @@ export default function CartoesPage() {
                     ))}
                   </select>
                 </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Divisão (opcional)</label>
+                  <select
+                    className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                    value={moveForm.splitMode}
+                    onChange={(event) =>
+                      setMoveForm((prev) => ({
+                        ...prev,
+                        splitMode: event.target.value as SplitMode,
+                        splitValor: event.target.value === "none" ? "" : prev.splitValor
+                      }))
+                    }
+                  >
+                    <option value="none">Sem divisão</option>
+                    <option value="DEA_AMBOS">DEA + AMBOS</option>
+                    <option value="WALKER_AMBOS">WALKER + AMBOS</option>
+                  </select>
+                </div>
               </div>
+
+              {moveForm.splitMode !== "none" && (
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">
+                      {moveForm.splitMode === "DEA_AMBOS" ? "Valor DEA" : "Valor WALKER"}
+                    </label>
+                    <input
+                      className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                      type="number"
+                      step="0.01"
+                      value={moveForm.splitValor}
+                      onChange={(event) => setMoveForm((prev) => ({ ...prev, splitValor: event.target.value }))}
+                      required
+                      placeholder="0,00"
+                    />
+                  </div>
+                </div>
+              )}
 
               <button disabled={savingMove} className="h-14 w-full rounded-2xl bg-ink text-sm font-black uppercase tracking-widest text-sand shadow-lg active:scale-95 transition-all">
                 {savingMove ? "Salvando..." : "Registrar Compra"}
@@ -1530,7 +1597,7 @@ export default function CartoesPage() {
                   className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none appearance-none disabled:opacity-60"
                   value={editMoveForm.atribuicao}
                   onChange={(e) => setEditMoveForm({ ...editMoveForm, atribuicao: e.target.value as Atribuicao })}
-                  disabled={editMoveForm.splitDeaAmbos}
+                  disabled={editMoveForm.splitMode !== "none"}
                 >
                   {atribuicoes.map((item) => (
                     <option key={item} value={item}>
@@ -1574,30 +1641,36 @@ export default function CartoesPage() {
               </div>
             </div>
 
-            <label className="flex items-center gap-2 rounded-xl bg-sand/50 px-4 py-3 ring-1 ring-ink/10">
-              <input
-                type="checkbox"
-                checked={editMoveForm.splitDeaAmbos}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Divisão (opcional)</label>
+              <select
+                className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none appearance-none"
+                value={editMoveForm.splitMode}
                 onChange={(e) =>
                   setEditMoveForm((prev) => ({
                     ...prev,
-                    splitDeaAmbos: e.target.checked,
-                    valorDea: e.target.checked ? prev.valorDea : ""
+                    splitMode: e.target.value as SplitMode,
+                    splitValor: e.target.value === "none" ? "" : prev.splitValor
                   }))
                 }
-              />
-              <span className="text-xs font-bold uppercase tracking-wider text-ink/70">Dividir em DEA + AMBOS</span>
-            </label>
+              >
+                <option value="none">Sem divisão</option>
+                <option value="DEA_AMBOS">DEA + AMBOS</option>
+                <option value="WALKER_AMBOS">WALKER + AMBOS</option>
+              </select>
+            </div>
 
-            {editMoveForm.splitDeaAmbos && (
+            {editMoveForm.splitMode !== "none" && (
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Valor DEA</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">
+                  {editMoveForm.splitMode === "DEA_AMBOS" ? "Valor DEA" : "Valor WALKER"}
+                </label>
                 <input
                   className="h-12 w-full rounded-xl bg-sand/50 px-4 ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none"
                   type="number"
                   step="0.01"
-                  value={editMoveForm.valorDea}
-                  onChange={(e) => setEditMoveForm({ ...editMoveForm, valorDea: e.target.value })}
+                  value={editMoveForm.splitValor}
+                  onChange={(e) => setEditMoveForm({ ...editMoveForm, splitValor: e.target.value })}
                   required
                 />
               </div>

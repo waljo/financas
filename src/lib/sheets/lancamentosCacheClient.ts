@@ -113,6 +113,12 @@ function writeMeta(key: string, value: string): void {
     .run(key, value);
 }
 
+function parseMetaNumber(value: string | null): number {
+  if (!value) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function readCacheRows(): Lancamento[] {
   ensureSchemaSync();
   const conn = getDb();
@@ -211,3 +217,29 @@ export async function readLancamentosCached(): Promise<Lancamento[]> {
   }
 }
 
+export interface LancamentosCacheStatus {
+  count: number;
+  syncedAt: string | null;
+  fresh: boolean;
+  ttlMs: number;
+}
+
+export function readLancamentosCacheStatus(nowMs = Date.now()): LancamentosCacheStatus {
+  ensureSchemaSync();
+  const syncedAt = readMeta(META_SYNCED_AT_KEY);
+  const count = parseMetaNumber(readMeta("lancamentos_count"));
+  return {
+    count,
+    syncedAt,
+    fresh: isCacheFresh(nowMs),
+    ttlMs: CACHE_TTL_MS
+  };
+}
+
+export function readLancamentosCacheMeta(key: string): string | null {
+  return readMeta(key);
+}
+
+export function writeLancamentosCacheMeta(key: string, value: string): void {
+  writeMeta(key, value);
+}

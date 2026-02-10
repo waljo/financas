@@ -1,0 +1,78 @@
+# Implementation Log
+
+Registro incremental de mudancas tecnicas no projeto.
+
+## 2026-02-10 - RFC de sync offline-first
+Resumo:
+- Formalizado o contrato tecnico de sincronizacao offline/online.
+- Definidos endpoints `pull/push/status/run`, modelo de conflito, idempotencia e observabilidade.
+- Documentados paths alvo para implementacao incremental.
+
+Arquivos alterados:
+- `docs/rfc_offline_sync_api.md`
+- `README.md`
+
+Validacao:
+- `npm run lint` sem erros.
+
+## 2026-02-10 - Fase 1 (sync manual + status mobile)
+Resumo:
+- Criada engine de sincronizacao manual para recarregar cache local de lancamentos a partir do Google Sheets.
+- Criados endpoints:
+  - `GET /api/sync/status`
+  - `POST /api/sync/run`
+- Atualizada navegacao mobile (`menu mais`) com:
+  - status de sincronizacao,
+  - botao `Sincronizar agora`,
+  - indicador visual online/offline no topo.
+
+Arquivos alterados:
+- `src/lib/sheets/lancamentosCacheClient.ts`
+- `src/lib/sync/engine.ts`
+- `src/app/api/sync/status/route.ts`
+- `src/app/api/sync/run/route.ts`
+- `src/components/AppNav.tsx`
+
+Validacao:
+- `npm run typecheck` sem erros.
+- `npm run lint` sem erros.
+
+## 2026-02-10 - Checklist de deploy (Fase 1)
+Resumo:
+- Criado checklist operacional de deploy para acesso fora da rede local.
+- Inclui setup Google Cloud, variaveis de ambiente, persistencia SQLite, validacao pos-deploy e rollback.
+
+Arquivos alterados:
+- `docs/deploy_checklist.md`
+- `README.md`
+
+## 2026-02-10 - Execucao tecnica do checklist (Railway)
+Resumo:
+- Preparado projeto para deploy Docker no Railway com `Next.js standalone`.
+- Adicionado healthcheck em `GET /api/health`.
+- Adicionada protecao opcional de Basic Auth via middleware:
+  - `APP_BASIC_AUTH_USER`
+  - `APP_BASIC_AUTH_PASS`
+- Criado runbook operacional Railway e script de smoke test de producao.
+
+Arquivos alterados:
+- `Dockerfile`
+- `.dockerignore`
+- `railway.json`
+- `next.config.mjs`
+- `middleware.ts`
+- `src/app/api/health/route.ts`
+- `.env.example`
+- `docs/deploy_railway_runbook.md`
+- `scripts/smoke_deploy.sh`
+- `docs/deploy_checklist.md`
+- `README.md`
+
+Validacao:
+- `npm run lint` sem erros.
+- `npm run typecheck` sem erros.
+- `npm run build` sem erros.
+
+Observacao:
+- A criacao do projeto no Railway e o deploy final na sua conta dependem de login/credenciais do provedor.
+- O comando `railway login --browserless` nao executa neste terminal por modo nao interativo.

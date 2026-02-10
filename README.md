@@ -30,6 +30,12 @@ App de financas pessoais com foco em lancamento rapido, relatorios, alertas e im
 - `npm run alertas` -> checa vencimentos e envia email (e opcionalmente Calendar)
 - `npm run importar:cli -- --config ./import-config.example.json` -> importador CLI
 - `node scripts/importar.js --config ./import-config.example.json` -> wrapper CLI solicitado
+- `./scripts/smoke_deploy.sh https://SEU_DOMINIO YYYY-MM` -> smoke test de deploy em producao
+
+## 3.1) Sincronizacao (Fase 1)
+- `GET /api/sync/status` -> retorna estado atual da sincronizacao e cache local.
+- `POST /api/sync/run` -> executa sincronizacao manual (recarrega cache local a partir do Sheets).
+- UI mobile: menu `Mais` contem o card de status e acao `Sincronizar agora`.
 
 ## 4) Estrutura do projeto
 - `src/lib/sheets` -> OAuth + wrapper de leitura/escrita no Sheets
@@ -129,6 +135,10 @@ Este projeto utiliza prompts versionados para garantir:
 - `prompts/task_templates/`: templates de tarefas (feature, UX review, bugfix)
 - `docs/legal_guardrails.md`: limites éticos e legais obrigatórios
 - `docs/codex_workflow.md`: workflow oficial de uso do Codex
+- `docs/rfc_offline_sync_api.md`: contrato tecnico de sync offline-first (pull/push/conflitos)
+- `docs/implementation_log.md`: log incremental das implementacoes e validacoes
+- `docs/deploy_checklist.md`: checklist pratico de deploy da Fase 1
+- `docs/deploy_railway_runbook.md`: passo a passo de deploy no Railway
 
 ### Regra obrigatória
 Ao usar Codex/IA neste projeto, considerar como autoridade:

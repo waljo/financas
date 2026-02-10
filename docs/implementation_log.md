@@ -105,9 +105,11 @@ Resumo:
 - Implementado Service Worker para cache offline de leitura.
 - Registro automatico do SW na navegacao principal.
 - Adicionado aviso de modo offline por cache no menu de sincronizacao.
+- Reforcado pre-cache para conviver com Basic Auth e adicionado fallback `offline.html`.
 
 Arquivos alterados:
 - `public/sw.js`
+- `public/offline.html`
 - `src/components/AppNav.tsx`
 - `middleware.ts`
 - `README.md`

@@ -1,7 +1,8 @@
 const APP_CACHE = "financas-app-v1";
 const API_CACHE = "financas-api-v1";
+const OFFLINE_FALLBACK_URL = "/offline.html";
 
-const CORE_PAGES = ["/", "/lancar", "/contas-fixas", "/relatorios", "/cartoes"];
+const CORE_PAGES = ["/", "/lancar", "/contas-fixas", "/relatorios", "/cartoes", OFFLINE_FALLBACK_URL];
 const API_CACHE_ALLOWLIST = ["/api/dashboard", "/api/lancamentos", "/api/contas-fixas", "/api/sync/status"];
 
 function isSameOrigin(requestUrl) {
@@ -16,7 +17,16 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(APP_CACHE);
-      await cache.addAll(CORE_PAGES);
+      for (const path of CORE_PAGES) {
+        try {
+          const response = await fetch(path, { credentials: "include" });
+          if (response.ok) {
+            await cache.put(path, response.clone());
+          }
+        } catch {
+          // Mantem a instalacao do SW mesmo se algum item nao puder ser pre-cacheado.
+        }
+      }
       self.skipWaiting();
     })()
   );
@@ -64,6 +74,8 @@ self.addEventListener("fetch", (event) => {
           if (cachedPage) return cachedPage;
           const cachedHome = await cache.match("/");
           if (cachedHome) return cachedHome;
+          const offlineFallback = await cache.match(OFFLINE_FALLBACK_URL);
+          if (offlineFallback) return offlineFallback;
           return new Response("Sem conexao e sem cache local para esta tela.", {
             status: 503,
             headers: { "Content-Type": "text/plain; charset=utf-8" }

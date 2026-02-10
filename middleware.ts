@@ -22,6 +22,7 @@ function shouldBypass(pathname: string): boolean {
   if (pathname === "/api/health") return true;
   if (pathname === "/sw.js") return true;
   if (pathname === "/manifest.webmanifest") return true;
+  if (pathname === "/offline.html") return true;
   return false;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { DashboardData, Lancamento } from "@/lib/types";
 
 const MANUAL_BALANCE_STORAGE_KEY = "dashboard.manual-balance.v2";
@@ -197,6 +197,8 @@ export default function DashboardPage() {
     observacao: "",
     quem_pagou: "WALKER"
   });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [operationMessage, setOperationMessage] = useState("");
   const [bootstrapMsg, setBootstrapMsg] = useState<string>("");
 
   async function fetchDashboard(nextMonth: string, options?: { skipLoading?: boolean }) {
@@ -297,6 +299,7 @@ export default function DashboardPage() {
       setBankBalances(createEmptyBankBalances());
       setSaldoCarteira("");
     }
+    setEditId(null);
     void fetchDashboard(month);
     void fetchLancamentos(month);
   }, [month]);
@@ -332,6 +335,12 @@ export default function DashboardPage() {
     setSaldoConsistencyAlert(null);
   }, [data, bankBalances, saldoCarteira]);
 
+  useEffect(() => {
+    if (!operationMessage) return;
+    const timeout = window.setTimeout(() => setOperationMessage(""), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [operationMessage]);
+
   async function bootstrapSheets() {
     setBootstrapMsg("Configurando abas...");
     const response = await fetch("/api/bootstrap", { method: "POST" });
@@ -345,7 +354,13 @@ export default function DashboardPage() {
   }
 
   function startEdit(item: Lancamento) {
+    if (editId === item.id) {
+      setEditId(null);
+      return;
+    }
+
     setEditId(item.id);
+    setError(null);
     setEditForm({
       data: item.data,
       tipo: item.tipo,
@@ -366,12 +381,19 @@ export default function DashboardPage() {
   }
 
   async function saveEdit() {
-    if (!editId) return;
+    if (!editId || savingEdit) return;
     try {
+      setSavingEdit(true);
+      setError(null);
+      const valor = Number(editForm.valor);
+      if (!Number.isFinite(valor)) {
+        throw new Error("Informe um valor valido para continuar.");
+      }
+
       const payload = {
         id: editId,
         ...editForm,
-        valor: Number(editForm.valor),
+        valor,
         parcela_total: editForm.parcela_total ? Number(editForm.parcela_total) : null,
         parcela_numero: editForm.parcela_numero ? Number(editForm.parcela_numero) : null
       };
@@ -385,16 +407,20 @@ export default function DashboardPage() {
         throw new Error(result.message ?? "Falha ao atualizar lancamento");
       }
       setEditId(null);
+      setOperationMessage("Lancamento atualizado com sucesso.");
       await fetchLancamentos(month);
       await fetchDashboard(month);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar lancamento");
+    } finally {
+      setSavingEdit(false);
     }
   }
 
   async function deleteLancamento(id: string) {
     if (!confirm("Excluir este lancamento?")) return;
     try {
+      setError(null);
       const response = await fetch(`/api/lancamentos?id=${id}`, { method: "DELETE" });
       const result = await response.json();
       if (!response.ok) {
@@ -402,6 +428,7 @@ export default function DashboardPage() {
       }
       await fetchLancamentos(month);
       await fetchDashboard(month);
+      setOperationMessage("Lancamento excluido com sucesso.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao excluir lancamento");
     }
@@ -796,38 +823,184 @@ export default function DashboardPage() {
               <tbody>
                 {pageItems.map((item) => {
                   const legado = legacyStatus(item.observacao ?? "");
+                  const isEditing = editId === item.id;
                   return (
-                  <tr key={item.id} className="border-b border-ink/10">
-                    <td className="px-2 py-2">{item.data}</td>
-                    <td className="px-2 py-2">{item.tipo}</td>
-                    <td className="px-2 py-2">{item.descricao}</td>
-                    <td className="px-2 py-2">{item.categoria}</td>
-                    <td className="px-2 py-2">
-                      {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                    </td>
-                    <td className="px-2 py-2">{item.atribuicao}</td>
-                    <td className="px-2 py-2">{item.quem_pagou}</td>
-                    <td className={`px-2 py-2 ${legado.color}`}>{legado.label}</td>
-                    <td className="px-2 py-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="rounded border border-ink/20 px-2 py-1 text-xs"
-                          onClick={() => startEdit(item)}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded border border-coral/40 px-2 py-1 text-xs text-coral"
-                          onClick={() => deleteLancamento(item.id)}
-                        >
-                          Excluir
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )})}
+                    <Fragment key={item.id}>
+                      <tr className={`border-b border-ink/10 ${isEditing ? "bg-sand/30" : ""}`}>
+                        <td className="px-2 py-2">{item.data}</td>
+                        <td className="px-2 py-2">{item.tipo}</td>
+                        <td className="px-2 py-2">{item.descricao}</td>
+                        <td className="px-2 py-2">{item.categoria}</td>
+                        <td className="px-2 py-2">
+                          {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </td>
+                        <td className="px-2 py-2">{item.atribuicao}</td>
+                        <td className="px-2 py-2">{item.quem_pagou}</td>
+                        <td className={`px-2 py-2 ${legado.color}`}>{legado.label}</td>
+                        <td className="px-2 py-2">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              className="rounded border border-ink/20 px-2 py-1 text-xs"
+                              onClick={() => startEdit(item)}
+                            >
+                              {isEditing ? "Fechar" : "Editar"}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-coral/40 px-2 py-1 text-xs text-coral"
+                              onClick={() => deleteLancamento(item.id)}
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {isEditing ? (
+                        <tr className="border-b border-ink/10 bg-sand/40">
+                          <td className="px-2 pb-4 pt-2" colSpan={9}>
+                            <div className="rounded-2xl border border-pine/20 bg-white p-4 shadow-sm animate-[bounce_0.45s_ease-in-out_1]">
+                              <h3 className="text-sm font-semibold">Editar lancamento</h3>
+                              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                <label className="text-sm">
+                                  Data
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    type="date"
+                                    value={editForm.data}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, data: event.target.value }))}
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Tipo
+                                  <select
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    value={editForm.tipo}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, tipo: event.target.value }))}
+                                  >
+                                    <option value="despesa">Despesa</option>
+                                    <option value="receita">Receita</option>
+                                  </select>
+                                </label>
+                                <label className="text-sm">
+                                  Valor
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    type="number"
+                                    step="0.01"
+                                    value={editForm.valor}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, valor: event.target.value }))}
+                                  />
+                                </label>
+                                <label className="text-sm md:col-span-2">
+                                  Descricao
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    value={editForm.descricao}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, descricao: event.target.value }))}
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Categoria
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    value={editForm.categoria}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, categoria: event.target.value }))}
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Atribuicao
+                                  <select
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    value={editForm.atribuicao}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, atribuicao: event.target.value }))}
+                                  >
+                                    <option value="WALKER">WALKER</option>
+                                    <option value="DEA">DEA</option>
+                                    <option value="AMBOS">AMBOS</option>
+                                    <option value="AMBOS_I">AMBOS_I</option>
+                                  </select>
+                                </label>
+                                <label className="text-sm">
+                                  Metodo
+                                  <select
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    value={editForm.metodo}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, metodo: event.target.value }))}
+                                  >
+                                    <option value="pix">pix</option>
+                                    <option value="cartao">cartao</option>
+                                    <option value="dinheiro">dinheiro</option>
+                                    <option value="transferencia">transferencia</option>
+                                    <option value="outro">outro</option>
+                                  </select>
+                                </label>
+                                <label className="text-sm">
+                                  Quem pagou
+                                  <select
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    value={editForm.quem_pagou}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, quem_pagou: event.target.value }))}
+                                  >
+                                    <option value="WALKER">WALKER</option>
+                                    <option value="DEA">DEA</option>
+                                  </select>
+                                </label>
+                                <label className="text-sm">
+                                  Parcela total
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    type="number"
+                                    min="1"
+                                    value={editForm.parcela_total}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Numero da parcela
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    type="number"
+                                    min="1"
+                                    value={editForm.parcela_numero}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
+                                  />
+                                </label>
+                                <label className="text-sm md:col-span-3">
+                                  Observacao
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
+                                    value={editForm.observacao}
+                                    onChange={(event) => setEditForm((prev) => ({ ...prev, observacao: event.target.value }))}
+                                  />
+                                </label>
+                              </div>
+                              <div className="mt-3 flex gap-2">
+                                <button
+                                  type="button"
+                                  className="rounded-lg bg-ink px-4 py-2 text-sand disabled:opacity-50"
+                                  onClick={saveEdit}
+                                  disabled={savingEdit}
+                                >
+                                  {savingEdit ? "Salvando..." : "Salvar"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-ink/30 px-4 py-2"
+                                  onClick={cancelEdit}
+                                  disabled={savingEdit}
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
             <div className="mt-3 flex items-center justify-between text-sm">
@@ -855,135 +1028,19 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-
-        {editId ? (
-          <div className="mt-4 rounded-lg border border-ink/10 bg-sand p-4">
-            <h3 className="text-sm font-semibold">Editar lancamento</h3>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <label className="text-sm">
-                Data
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  type="date"
-                  value={editForm.data}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, data: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm">
-                Tipo
-                <select
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={editForm.tipo}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, tipo: event.target.value }))}
-                >
-                  <option value="despesa">Despesa</option>
-                  <option value="receita">Receita</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                Valor
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  type="number"
-                  step="0.01"
-                  value={editForm.valor}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, valor: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm md:col-span-2">
-                Descricao
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={editForm.descricao}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, descricao: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm">
-                Categoria
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={editForm.categoria}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, categoria: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm">
-                Atribuicao
-                <select
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={editForm.atribuicao}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, atribuicao: event.target.value }))}
-                >
-                  <option value="WALKER">WALKER</option>
-                  <option value="DEA">DEA</option>
-                  <option value="AMBOS">AMBOS</option>
-                  <option value="AMBOS_I">AMBOS_I</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                Metodo
-                <select
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={editForm.metodo}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, metodo: event.target.value }))}
-                >
-                  <option value="pix">pix</option>
-                  <option value="cartao">cartao</option>
-                  <option value="dinheiro">dinheiro</option>
-                  <option value="transferencia">transferencia</option>
-                  <option value="outro">outro</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                Quem pagou
-                <select
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={editForm.quem_pagou}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, quem_pagou: event.target.value }))}
-                >
-                  <option value="WALKER">WALKER</option>
-                  <option value="DEA">DEA</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                Parcela total
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  type="number"
-                  min="1"
-                  value={editForm.parcela_total}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, parcela_total: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm">
-                Numero da parcela
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  type="number"
-                  min="1"
-                  value={editForm.parcela_numero}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, parcela_numero: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm md:col-span-3">
-                Observacao
-                <input
-                  className="mt-1 w-full rounded-lg border border-ink/20 px-3 py-2"
-                  value={editForm.observacao}
-                  onChange={(event) => setEditForm((prev) => ({ ...prev, observacao: event.target.value }))}
-                />
-              </label>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button type="button" className="rounded-lg bg-ink px-4 py-2 text-sand" onClick={saveEdit}>
-                Salvar
-              </button>
-              <button type="button" className="rounded-lg border border-ink/30 px-4 py-2" onClick={cancelEdit}>
-                Cancelar
-              </button>
-            </div>
-          </div>
-        ) : null}
       </article>
+
+      {operationMessage && (
+        <div className="fixed inset-x-0 bottom-24 z-[120] flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => setOperationMessage("")}
+            className="w-full max-w-sm rounded-2xl bg-pine p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl animate-bounce"
+          >
+            {operationMessage}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -188,6 +188,15 @@ export default function DashboardPage() {
   const [showProjecaoDetalhe, setShowProjecaoDetalhe] = useState(false);
   const [showProjecaoReceitasMes, setShowProjecaoReceitasMes] = useState(false);
   const [showProjecaoDespesasDetalhe, setShowProjecaoDespesasDetalhe] = useState(false);
+  const [receitaEditId, setReceitaEditId] = useState<string | null>(null);
+  const [receitaEditForm, setReceitaEditForm] = useState({
+    data: "",
+    descricao: "",
+    categoria: "",
+    valor: "",
+    observacao: ""
+  });
+  const [savingReceitaEdit, setSavingReceitaEdit] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     data: "",
@@ -308,6 +317,7 @@ export default function DashboardPage() {
     setShowProjecaoDetalhe(false);
     setShowProjecaoReceitasMes(false);
     setShowProjecaoDespesasDetalhe(false);
+    setReceitaEditId(null);
     setEditId(null);
     void fetchDashboard(month);
     void fetchLancamentos(month);
@@ -375,6 +385,69 @@ export default function DashboardPage() {
 
   function cancelEdit() {
     setEditId(null);
+  }
+
+  function startReceitaEdit(item: Lancamento) {
+    if (item.tipo !== "receita") return;
+    setError(null);
+    setReceitaEditId(item.id);
+    setReceitaEditForm({
+      data: item.data,
+      descricao: item.descricao,
+      categoria: item.categoria,
+      valor: String(item.valor),
+      observacao: item.observacao ?? ""
+    });
+  }
+
+  function cancelReceitaEdit() {
+    setReceitaEditId(null);
+  }
+
+  async function saveReceitaEdit(item: Lancamento) {
+    if (savingReceitaEdit || item.tipo !== "receita") return;
+
+    try {
+      setSavingReceitaEdit(true);
+      setError(null);
+      const valor = Number(receitaEditForm.valor);
+      if (!Number.isFinite(valor) || valor === 0) {
+        throw new Error("Informe um valor valido para continuar.");
+      }
+
+      const payload = {
+        id: item.id,
+        data: receitaEditForm.data,
+        tipo: "receita" as const,
+        descricao: receitaEditForm.descricao,
+        categoria: receitaEditForm.categoria,
+        valor,
+        atribuicao: item.atribuicao,
+        metodo: item.metodo,
+        parcela_total: null,
+        parcela_numero: null,
+        observacao: receitaEditForm.observacao,
+        quem_pagou: item.quem_pagou
+      };
+
+      const response = await fetch("/api/lancamentos", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message ?? "Falha ao atualizar receita");
+      }
+      setReceitaEditId(null);
+      setOperationMessage("Receita atualizada com sucesso.");
+      await fetchLancamentos(month);
+      await fetchDashboard(month);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar receita");
+    } finally {
+      setSavingReceitaEdit(false);
+    }
   }
 
   async function saveEdit() {
@@ -618,13 +691,102 @@ export default function DashboardPage() {
               ) : (
                 <ul className="mt-2 space-y-1 text-sm">
                   {receitasMesDetalhe.map((item) => (
-                    <li key={item.id} className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
-                      <span className="font-semibold text-ink/70">
-                        {item.data} - {item.descricao}
-                      </span>
-                      <span className="font-bold text-ink">
-                        {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                      </span>
+                    <li key={item.id} className="rounded-lg bg-white/70 px-3 py-2">
+                      {receitaEditId === item.id ? (
+                        <div className="space-y-2">
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <label className="text-xs">
+                              Data
+                              <input
+                                className="mt-1 w-full rounded-lg border border-ink/20 px-2 py-1"
+                                type="date"
+                                value={receitaEditForm.data}
+                                onChange={(event) =>
+                                  setReceitaEditForm((prev) => ({ ...prev, data: event.target.value }))
+                                }
+                              />
+                            </label>
+                            <label className="text-xs">
+                              Valor
+                              <input
+                                className="mt-1 w-full rounded-lg border border-ink/20 px-2 py-1"
+                                type="number"
+                                step="0.01"
+                                value={receitaEditForm.valor}
+                                onChange={(event) =>
+                                  setReceitaEditForm((prev) => ({ ...prev, valor: event.target.value }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <label className="block text-xs">
+                            Descricao
+                            <input
+                              className="mt-1 w-full rounded-lg border border-ink/20 px-2 py-1"
+                              value={receitaEditForm.descricao}
+                              onChange={(event) =>
+                                setReceitaEditForm((prev) => ({ ...prev, descricao: event.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="block text-xs">
+                            Categoria
+                            <input
+                              className="mt-1 w-full rounded-lg border border-ink/20 px-2 py-1"
+                              value={receitaEditForm.categoria}
+                              onChange={(event) =>
+                                setReceitaEditForm((prev) => ({ ...prev, categoria: event.target.value }))
+                              }
+                            />
+                          </label>
+                          <label className="block text-xs">
+                            Observacao
+                            <input
+                              className="mt-1 w-full rounded-lg border border-ink/20 px-2 py-1"
+                              value={receitaEditForm.observacao}
+                              onChange={(event) =>
+                                setReceitaEditForm((prev) => ({ ...prev, observacao: event.target.value }))
+                              }
+                            />
+                          </label>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              className="rounded-lg bg-ink px-3 py-1 text-xs font-bold text-sand disabled:opacity-50"
+                              onClick={() => saveReceitaEdit(item)}
+                              disabled={savingReceitaEdit}
+                            >
+                              {savingReceitaEdit ? "Salvando..." : "Salvar"}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-lg border border-ink/30 px-3 py-1 text-xs"
+                              onClick={cancelReceitaEdit}
+                              disabled={savingReceitaEdit}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold text-ink/70">
+                            {item.data} - {item.descricao}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-ink">
+                              {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </span>
+                            <button
+                              type="button"
+                              className="rounded border border-ink/20 px-2 py-1 text-xs"
+                              onClick={() => startReceitaEdit(item)}
+                            >
+                              Editar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

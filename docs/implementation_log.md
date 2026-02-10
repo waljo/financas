@@ -76,3 +76,16 @@ Validacao:
 Observacao:
 - A criacao do projeto no Railway e o deploy final na sua conta dependem de login/credenciais do provedor.
 - O comando `railway login --browserless` nao executa neste terminal por modo nao interativo.
+
+## 2026-02-10 - Correcao de bloqueio de seguranca Railway
+Resumo:
+- Atualizado `next` para `14.2.35` e `eslint-config-next` para `14.2.35` para atender o bloqueio de vulnerabilidade do deploy no Railway.
+
+Arquivos alterados:
+- `package.json`
+- `package-lock.json`
+
+Validacao:
+- `npm run lint` sem erros.
+- `npm run typecheck` sem erros.
+- `npm run build` com `Next.js 14.2.35`.

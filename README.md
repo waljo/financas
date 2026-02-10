@@ -3,7 +3,7 @@
 App de financas pessoais com foco em lancamento rapido, relatorios, alertas e importacao da planilha legada, mantendo Google Sheets como fonte da verdade.
 
 ## 1) Requisitos
-- Node.js 20+
+- Node.js 24+
 - npm 10+
 - Conta Google com acesso a:
   - Google Sheets API

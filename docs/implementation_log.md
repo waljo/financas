@@ -89,3 +89,13 @@ Validacao:
 - `npm run lint` sem erros.
 - `npm run typecheck` sem erros.
 - `npm run build` com `Next.js 14.2.35`.
+
+## 2026-02-10 - Correcao de build Railway (node:sqlite)
+Resumo:
+- Ajustado `Dockerfile` para `node:24-alpine` em todos os estagios.
+- Motivo: erro de build em `/api/cartoes/importar/run` ao coletar page data por uso de `node:sqlite`.
+
+Arquivos alterados:
+- `Dockerfile`
+- `README.md`
+- `docs/deploy_checklist.md`

@@ -23,7 +23,7 @@ Checklist:
 - [ ] Criar projeto no provedor.
 - [ ] Conectar o repositorio Git.
 - [ ] Configurar deploy automatico pela branch principal.
-- [ ] Confirmar runtime Node 20+.
+- [ ] Confirmar runtime Node 24+ (necessario por uso de `node:sqlite`).
 
 ## 2) Preparacao Google Cloud (obrigatorio)
 

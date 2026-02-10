@@ -44,6 +44,7 @@ export const contaFixaSchema = z.object({
   dia_vencimento: z.coerce.number().int().min(1).max(31),
   valor_previsto: nullableNumber.optional().default(null),
   atribuicao: z.enum(ATRIBUICOES),
+  quem_pagou: z.enum(PESSOA_PAGADORA).default("WALKER"),
   categoria: z.string().min(1),
   avisar_dias_antes: z.string().default("5,2"),
   ativo: z.coerce.boolean().default(true)

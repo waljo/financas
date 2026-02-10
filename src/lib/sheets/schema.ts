@@ -23,7 +23,8 @@ export const SHEET_SCHEMA = {
     "atribuicao",
     "categoria",
     "avisar_dias_antes",
-    "ativo"
+    "ativo",
+    "quem_pagou"
   ],
   CALENDARIO_ANUAL: [
     "id",

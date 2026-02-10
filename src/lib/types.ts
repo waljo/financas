@@ -45,6 +45,7 @@ export interface ContaFixa {
   dia_vencimento: number;
   valor_previsto: number | null;
   atribuicao: Atribuicao;
+  quem_pagou: PessoaPagadora;
   categoria: string;
   avisar_dias_antes: string;
   ativo: boolean;
@@ -125,10 +126,42 @@ export interface RelatorioParcelasDetalhe {
 export interface ProjecaoNoventaDias {
   periodoInicio: string;
   periodoFim: string;
+  periodoBaseInicio: string;
+  periodoBaseFim: string;
   receitasPrevistas: number;
   despesasFixasPrevistas: number;
+  despesasWalkerPrevistas: number;
   despesasSazonaisPrevistas: number;
-  parcelasPrevistas: number;
+  parcelasPrevistas: number | null;
+  receitasWalkerPorMesAnoAnterior: Array<{
+    mes: string;
+    total: number;
+  }>;
+  despesasWalkerDetalhe: {
+    avulsas: {
+      total: number;
+      percentual: number;
+      cartao: {
+        total: number;
+        valorParcelas: number | null;
+        semDadosParcelas: boolean;
+      };
+    };
+    fixas: {
+      total: number;
+      percentual: number;
+    };
+  };
+  despesasWalkerPorMes: Array<{
+    mes: string;
+    mesBaseAnoAnterior: string;
+    avulsas: number;
+    fixas: number;
+    cartao: number;
+    valorParcelasCartao: number | null;
+    semDadosParcelasCartao: boolean;
+    total: number;
+  }>;
   saldoProjetado: number;
 }
 

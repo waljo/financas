@@ -421,7 +421,7 @@ function handleReceitasMonthChange(nextMonth: string) {
         parcela_total: null,
         parcela_numero: null,
         observacao: `[CONTA_FIXA:${conta.id}] Lançado pelo quadro de contas fixas`,
-        quem_pagou: "WALKER"
+        quem_pagou: conta.quem_pagou || "WALKER"
       };
 
       const response = await fetch("/api/lancamentos", {
@@ -611,6 +611,9 @@ function handleReceitasMonthChange(nextMonth: string) {
                         <span className="ml-1 opacity-50">
                           {daysUntilDue === 0 ? " (hoje)" : daysUntilDue > 0 ? ` (em ${daysUntilDue} dias)` : ` (${Math.abs(daysUntilDue)}d atrasada)`}
                         </span>
+                      </p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-ink/35">
+                        Quem paga: {conta.quem_pagou}
                       </p>
                     </div>
 

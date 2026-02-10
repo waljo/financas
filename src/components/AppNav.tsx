@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const primaryLinks = [
@@ -26,13 +26,47 @@ const moreLinks = [
 
 export function AppNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const launchActive = pathname === "/lancar";
   const [moreOpen, setMoreOpen] = useState(false);
+  const [repairLoading, setRepairLoading] = useState(false);
+  const [repairNotice, setRepairNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const moreRouteActive = moreLinks.some((item) => item.href === pathname);
 
   useEffect(() => {
     setMoreOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!repairNotice) return;
+    const timeout = window.setTimeout(() => setRepairNotice(null), 3500);
+    return () => window.clearTimeout(timeout);
+  }, [repairNotice]);
+
+  async function repairConnection() {
+    if (repairLoading) return;
+    try {
+      setRepairLoading(true);
+      const response = await fetch("/api/bootstrap", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.message ?? "Falha ao reparar conexão");
+      }
+      setRepairNotice({
+        tone: "success",
+        message: payload.message ?? "Conexão reparada com sucesso."
+      });
+      setMoreOpen(false);
+      router.refresh();
+    } catch (error) {
+      setRepairNotice({
+        tone: "error",
+        message: error instanceof Error ? error.message : "Erro ao reparar conexão"
+      });
+    } finally {
+      setRepairLoading(false);
+    }
+  }
 
   return (
     <>
@@ -42,6 +76,15 @@ export function AppNav() {
       </nav>
 
       {/* Bottom Nav com base sutil */}
+      {moreOpen ? (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          onClick={() => setMoreOpen(false)}
+          className="fixed inset-0 z-[45] cursor-default bg-transparent"
+        />
+      ) : null}
+
       <nav className="fixed bottom-0 left-0 z-50 w-full px-0 pb-2 pt-0">
         <div className="relative flex w-full flex-col items-center border-t border-ink/10 bg-white/75 px-6 pb-2 pt-7 shadow-xl backdrop-blur-xl">
           <Link
@@ -114,12 +157,35 @@ export function AppNav() {
                       {item.label}
                     </Link>
                   ))}
+                  <div className="my-1 border-t border-ink/10" />
+                  <button
+                    type="button"
+                    onClick={repairConnection}
+                    disabled={repairLoading}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-ink/80 hover:bg-sand disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {repairLoading ? "Reparando..." : "Reparar conexão"}
+                  </button>
                 </div>
               )}
             </div>
           </div>
         </div>
       </nav>
+
+      {repairNotice && (
+        <div className="fixed inset-x-0 bottom-24 z-[120] flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => setRepairNotice(null)}
+            className={`w-full max-w-sm rounded-2xl p-4 text-center text-xs font-black uppercase tracking-widest text-white shadow-2xl ${
+              repairNotice.tone === "success" ? "bg-pine animate-bounce" : "bg-coral"
+            }`}
+          >
+            {repairNotice.message}
+          </button>
+        </div>
+      )}
     </>
   );
 }

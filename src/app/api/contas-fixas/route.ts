@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "@/lib/errors";
-import { appendRow, deleteRowById, readContasFixas, updateRowById } from "@/lib/sheets/sheetsClient";
+import { appendRow, deleteRowById, ensureSchemaSheets, readContasFixas, updateRowById } from "@/lib/sheets/sheetsClient";
 import { jsonError, jsonOk } from "@/lib/http";
 import { contaFixaSchema } from "@/lib/validation/schemas";
 
@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 
 export async function GET() {
   try {
+    await ensureSchemaSheets();
     const rows = await readContasFixas();
     return jsonOk({ data: rows });
   } catch (error) {
@@ -17,6 +18,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    await ensureSchemaSheets();
     const body = await request.json();
     const parsed = contaFixaSchema.parse(body);
     const row = {
@@ -33,6 +35,7 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    await ensureSchemaSheets();
     const body = await request.json();
     const parsed = contaFixaSchema.parse(body);
 

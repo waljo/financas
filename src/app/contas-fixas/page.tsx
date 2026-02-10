@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import type { ContaFixa } from "@/lib/types";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { PESSOA_PAGADORA, type ContaFixa } from "@/lib/types";
 import { CategoryPicker } from "@/components/CategoryPicker";
 
 const atribuicoes = ["WALKER", "DEA", "AMBOS", "AMBOS_I"];
@@ -12,6 +12,7 @@ interface ContaFixaForm {
   dia_vencimento: string;
   valor_previsto: string;
   atribuicao: string;
+  quem_pagou: string;
   categoria: string;
   avisar_dias_antes: string;
   ativo: boolean;
@@ -22,10 +23,19 @@ const initialForm: ContaFixaForm = {
   dia_vencimento: "10",
   valor_previsto: "",
   atribuicao: "AMBOS",
+  quem_pagou: "WALKER",
   categoria: "",
   avisar_dias_antes: "5,2",
   ativo: true
 };
+
+function walkerShareByAtribuicao(atribuicao: string, valor: number): number {
+  const normalized = atribuicao.trim().toUpperCase();
+  if (normalized === "WALKER") return valor;
+  if (normalized === "AMBOS") return valor * 0.6;
+  if (normalized === "AMBOS_I") return valor * 0.4;
+  return 0;
+}
 
 export default function ContasFixasPage() {
   const [rows, setRows] = useState<ContaFixa[]>([]);
@@ -93,6 +103,7 @@ export default function ContasFixasPage() {
       dia_vencimento: String(row.dia_vencimento),
       valor_previsto: row.valor_previsto === null ? "" : String(row.valor_previsto),
       atribuicao: row.atribuicao,
+      quem_pagou: row.quem_pagou,
       categoria: row.categoria,
       avisar_dias_antes: row.avisar_dias_antes,
       ativo: row.ativo
@@ -119,6 +130,20 @@ export default function ContasFixasPage() {
       setError(err instanceof Error ? err.message : "Erro inesperado");
     }
   }
+
+  const rowsAtivas = useMemo(() => rows.filter((item) => item.ativo), [rows]);
+  const totalGeral = useMemo(
+    () => rowsAtivas.reduce((acc, item) => acc + (item.valor_previsto ?? 0), 0),
+    [rowsAtivas]
+  );
+  const totalWalker = useMemo(
+    () =>
+      rowsAtivas.reduce(
+        (acc, item) => acc + walkerShareByAtribuicao(item.atribuicao, item.valor_previsto ?? 0),
+        0
+      ),
+    [rowsAtivas]
+  );
 
   return (
     <section className="space-y-8 pb-24">
@@ -202,6 +227,21 @@ export default function ContasFixasPage() {
                   ))}
                 </select>
               </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">Quem paga</label>
+                <select
+                  className="h-14 w-full rounded-2xl bg-sand/30 px-5 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all appearance-none"
+                  value={form.quem_pagou}
+                  onChange={(event) => setForm((prev) => ({ ...prev, quem_pagou: event.target.value }))}
+                >
+                  {PESSOA_PAGADORA.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <CategoryPicker
                 label="Categoria"
                 value={form.categoria}
@@ -255,6 +295,20 @@ export default function ContasFixasPage() {
 
       <section className="space-y-4">
         <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40 ml-1">Lista de Compromissos</h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-ink/40">Total geral (ativas)</p>
+            <p className="mt-1 text-2xl font-black tracking-tight text-ink">
+              {totalGeral.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            </p>
+          </article>
+          <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-ink/40">Total WALKER (ativas)</p>
+            <p className="mt-1 text-2xl font-black tracking-tight text-pine">
+              {totalWalker.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            </p>
+          </article>
+        </div>
         
         {loading && <p className="text-center py-10 text-ink/20 animate-pulse font-black uppercase tracking-widest text-xs">Carregando dados...</p>}
         
@@ -270,6 +324,9 @@ export default function ContasFixasPage() {
                     </span>
                     <span className="rounded-full bg-sand px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-ink/40">
                       {row.atribuicao}
+                    </span>
+                    <span className="rounded-full bg-sand px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-ink/40">
+                      QUEM {row.quem_pagou}
                     </span>
                     <span className="rounded-full bg-pine/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-pine">
                       {row.categoria}

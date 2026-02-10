@@ -2,7 +2,7 @@ import { computeReport } from "@/domain/calculations";
 import { splitByAtribuicao } from "@/domain/attribution";
 import { jsonError, jsonOk } from "@/lib/http";
 import { ensureCartoesDb, readCartaoMovimentosComAlocacoes } from "@/lib/sheets/cartoesClient";
-import { readLancamentos } from "@/lib/sheets/sheetsClient";
+import { readLancamentosCached } from "@/lib/sheets/lancamentosCacheClient";
 import { reportQuerySchema } from "@/lib/validation/schemas";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const mes = searchParams.get("mes") ?? "";
     const query = reportQuerySchema.parse({ mes });
 
-    const lancamentos = await readLancamentos();
+    const lancamentos = await readLancamentosCached();
     const report = computeReport(query.mes, lancamentos);
 
     const parcelasLancamentosCartaoWalker = lancamentos

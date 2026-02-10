@@ -12,6 +12,7 @@ import {
 import { jsonError, jsonOk } from "@/lib/http";
 import { lancamentoSchema } from "@/lib/validation/schemas";
 import { toIsoNow } from "@/lib/utils";
+import { readLancamentosCached, syncLancamentosCacheFromSheets } from "@/lib/sheets/lancamentosCacheClient";
 
 export const runtime = "nodejs";
 
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const mes = searchParams.get("mes")?.trim();
 
-    const lancamentos = await readLancamentos();
+    const lancamentos = await readLancamentosCached();
     const filtered = mes ? lancamentos.filter((item) => item.data.startsWith(mes)) : lancamentos;
 
     return jsonOk({ data: filtered });
@@ -78,6 +79,12 @@ export async function POST(request: Request) {
         row.observacao = observacao;
         row.updated_at = updated.updated_at;
       }
+    }
+
+    try {
+      await syncLancamentosCacheFromSheets();
+    } catch {
+      // Mantem sucesso da operacao no Sheets mesmo se o cache local falhar.
     }
 
     return jsonOk({ data: row, legacy }, 201);
@@ -131,6 +138,13 @@ export async function PUT(request: Request) {
       observacao: withLegacyStatusTag(row.observacao ?? "", legacy)
     };
     await updateRowById("LANCAMENTOS", parsed.id, nextRow);
+
+    try {
+      await syncLancamentosCacheFromSheets();
+    } catch {
+      // Mantem sucesso da operacao no Sheets mesmo se o cache local falhar.
+    }
+
     return jsonOk({ data: nextRow, legacy });
   } catch (error) {
     return jsonError(error);
@@ -149,6 +163,13 @@ export async function DELETE(request: Request) {
     const target = lancamentos.find((item) => item.id === id);
     await deleteRowById("LANCAMENTOS", id);
     const legacy = target ? await removeLegacyLancamento(target) : { status: "skipped" as const };
+
+    try {
+      await syncLancamentosCacheFromSheets();
+    } catch {
+      // Mantem sucesso da operacao no Sheets mesmo se o cache local falhar.
+    }
+
     return jsonOk({ ok: true, id, legacy });
   } catch (error) {
     return jsonError(error);

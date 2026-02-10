@@ -183,6 +183,11 @@ export default function DashboardPage() {
   const [pageSize, setPageSize] = useState(20);
   const [sortKey, setSortKey] = useState<"data" | "valor" | "descricao" | "categoria" | "tipo">("data");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [showBalancoBreakdown, setShowBalancoBreakdown] = useState(false);
+  const [showReceitasMesDetalhe, setShowReceitasMesDetalhe] = useState(false);
+  const [showProjecaoDetalhe, setShowProjecaoDetalhe] = useState(false);
+  const [showProjecaoReceitasMes, setShowProjecaoReceitasMes] = useState(false);
+  const [showProjecaoDespesasDetalhe, setShowProjecaoDespesasDetalhe] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     data: "",
@@ -199,7 +204,6 @@ export default function DashboardPage() {
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [operationMessage, setOperationMessage] = useState("");
-  const [bootstrapMsg, setBootstrapMsg] = useState<string>("");
 
   async function fetchDashboard(nextMonth: string, options?: { skipLoading?: boolean }) {
     const shouldManageLoading = !options?.skipLoading;
@@ -299,6 +303,11 @@ export default function DashboardPage() {
       setBankBalances(createEmptyBankBalances());
       setSaldoCarteira("");
     }
+    setShowBalancoBreakdown(false);
+    setShowReceitasMesDetalhe(false);
+    setShowProjecaoDetalhe(false);
+    setShowProjecaoReceitasMes(false);
+    setShowProjecaoDespesasDetalhe(false);
     setEditId(null);
     void fetchDashboard(month);
     void fetchLancamentos(month);
@@ -340,18 +349,6 @@ export default function DashboardPage() {
     const timeout = window.setTimeout(() => setOperationMessage(""), 3000);
     return () => window.clearTimeout(timeout);
   }, [operationMessage]);
-
-  async function bootstrapSheets() {
-    setBootstrapMsg("Configurando abas...");
-    const response = await fetch("/api/bootstrap", { method: "POST" });
-    const payload = await response.json();
-    if (!response.ok) {
-      setBootstrapMsg(payload.message ?? "Falha no bootstrap");
-      return;
-    }
-    setBootstrapMsg("Abas normalizadas prontas.");
-    await fetchDashboard(month);
-  }
 
   function startEdit(item: Lancamento) {
     if (editId === item.id) {
@@ -499,17 +496,26 @@ export default function DashboardPage() {
   const deaValue = Math.abs(receberPagarDEA);
   const saldoBancosTotal = BANK_BALANCE_FIELDS.reduce((acc, item) => acc + parseInputNumber(bankBalances[item.key]), 0);
   const balancoValue = data?.diferencaBalanco ?? 0;
+  const receitasMesDetalhe = lancamentos
+    .filter((item) => item.tipo === "receita")
+    .sort((a, b) => b.data.localeCompare(a.data));
 
   const cards = [
-    { label: "Receitas do mes", value: data?.receitasMes ?? 0 },
-    { label: "Despesas do mes", value: data?.despesasMes ?? 0 },
-    { label: "Saldo do mes", value: data?.saldoMes ?? 0 },
-    { label: "Saldo apos acerto DEA", value: data?.saldoAposAcertoDEA ?? 0 },
-    { label: deaLabel, value: deaValue },
-    { label: "Saldo sistema", value: data?.balancoSistema ?? 0 },
-    { label: "SALDO REAL (VEM DA PLANILHA)", value: data?.balancoReal ?? 0 },
-    { label: "Projecao 90 dias", value: data?.projecao90Dias?.saldoProjetado ?? 0 }
-  ];
+    { id: "receitas_mes", label: "Receitas do mes", value: data?.receitasMes ?? 0 },
+    { id: "despesas_mes", label: "Despesas do mes", value: data?.despesasMes ?? 0 },
+    { id: "saldo_mes", label: "Saldo do mes", value: data?.saldoMes ?? 0 },
+    { id: "dea", label: deaLabel, value: deaValue },
+    { id: "saldo_apos_dea", label: "Saldo apos acerto DEA", value: data?.saldoAposAcertoDEA ?? 0 },
+    { id: "saldo_sistema", label: "Saldo sistema", value: data?.balancoSistema ?? 0 },
+    { id: "saldo_real", label: "SALDO REAL (VEM DA PLANILHA)", value: data?.balancoReal ?? 0 },
+    { id: "projecao_90", label: "Projecao 90 dias", value: data?.projecao90Dias?.saldoProjetado ?? 0 }
+  ] as const;
+
+  const balancoBreakdownCards = cards.filter((card) => card.id === "saldo_sistema" || card.id === "saldo_real");
+  const secondaryCards = cards.filter(
+    (card) =>
+      !["receitas_mes", "despesas_mes", "saldo_sistema", "saldo_real", "projecao_90"].includes(card.id)
+  );
 
   return (
     <section className="space-y-8 pb-20">
@@ -534,8 +540,12 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
-          <article
-            className={`relative overflow-hidden rounded-[2rem] p-8 shadow-2xl transition-all ${
+          <button
+            type="button"
+            aria-expanded={showBalancoBreakdown}
+            aria-controls="balanco-breakdown"
+            onClick={() => setShowBalancoBreakdown((prev) => !prev)}
+            className={`relative w-full overflow-hidden rounded-[2rem] p-8 text-left shadow-2xl transition-all focus:outline-none focus:ring-2 focus:ring-white/80 ${
               balancoValue >= 0 
                 ? "bg-gradient-to-br from-pine to-emerald-700 text-white" 
                 : "bg-gradient-to-br from-coral to-rose-700 text-white"
@@ -551,20 +561,45 @@ export default function DashboardPage() {
                   {balancoValue >= 0 ? "● Sistema em dia" : "● Ajuste necessário"}
                 </span>
               </div>
+              <p className="mt-3 text-[11px] font-bold uppercase tracking-wider text-white/75">
+                {showBalancoBreakdown ? "Ocultar saldos de auditoria" : "Toque para ver saldo sistema e saldo real"}
+              </p>
             </div>
             {/* Abstract shapes for premium feel */}
             <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-3xl" />
             <div className="absolute -bottom-12 -left-12 h-40 w-40 rounded-full bg-black/10 blur-3xl" />
-          </article>
+          </button>
+
+          {showBalancoBreakdown ? (
+            <div id="balanco-breakdown" className="grid gap-4 md:grid-cols-2 animate-[bounce_0.45s_ease-in-out_1]">
+              {balancoBreakdownCards.map((card) => (
+                <article key={card.id} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-ink/35">{card.label}</p>
+                  <p className="mt-2 text-xl font-black tracking-tight text-ink">
+                    {card.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : null}
 
           {/* Quick Summary Grid */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
+            <button
+              type="button"
+              aria-expanded={showReceitasMesDetalhe}
+              aria-controls="receitas-mes-detalhe"
+              onClick={() => setShowReceitasMesDetalhe((prev) => !prev)}
+              className="rounded-2xl bg-white p-5 text-left shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md"
+            >
               <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">Receitas</p>
               <p className="mt-1 text-lg font-bold text-pine">
                 {data?.receitasMes.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) ?? "R$ 0,00"}
               </p>
-            </div>
+              <p className="mt-2 text-[11px] font-semibold text-ink/45">
+                {showReceitasMesDetalhe ? "Ocultar detalhamento" : "Toque para detalhar receitas"}
+              </p>
+            </button>
             <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5">
               <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">Despesas</p>
               <p className="mt-1 text-lg font-bold text-coral">
@@ -572,8 +607,212 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
+
+          {showReceitasMesDetalhe ? (
+            <div id="receitas-mes-detalhe" className="rounded-2xl border border-pine/20 bg-pine/5 p-4 animate-[bounce_0.45s_ease-in-out_1]">
+              <p className="text-xs font-bold uppercase tracking-wider text-pine">Detalhamento das receitas do mes</p>
+              {loadingLanc ? (
+                <p className="mt-2 text-sm text-ink/60">Carregando receitas...</p>
+              ) : receitasMesDetalhe.length === 0 ? (
+                <p className="mt-2 text-sm text-ink/60">Sem receitas lançadas para este mês.</p>
+              ) : (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {receitasMesDetalhe.map((item) => (
+                    <li key={item.id} className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
+                      <span className="font-semibold text-ink/70">
+                        {item.data} - {item.descricao}
+                      </span>
+                      <span className="font-bold text-ink">
+                        {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
         </>
       )}
+
+      {/* Secondary Metrics */}
+      <div className="grid gap-4 md:grid-cols-4">
+        {secondaryCards.map((card) => (
+          <article key={card.id} className="group rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30 group-hover:text-ink/50 transition-colors">{card.label}</p>
+            <p className="mt-2 text-xl font-black tracking-tight text-ink">
+              {card.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      {data?.projecao90Dias ? (
+        <article className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
+          <button
+            type="button"
+            aria-expanded={showProjecaoDetalhe}
+            aria-controls="projecao-90-detalhe"
+            onClick={() => setShowProjecaoDetalhe((prev) => !prev)}
+            className="w-full text-left"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold">Projecao 90 dias</h2>
+                <p className="text-sm text-ink/70">
+                  {data.projecao90Dias.periodoInicio} ate {data.projecao90Dias.periodoFim}
+                </p>
+                <p className="mt-1 text-xs text-ink/50">
+                  Base historica: {data.projecao90Dias.periodoBaseInicio} ate {data.projecao90Dias.periodoBaseFim}
+                </p>
+              </div>
+              <p className="text-xl font-black tracking-tight text-ink">
+                {data.projecao90Dias.saldoProjetado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </p>
+            </div>
+            <p className="mt-2 text-xs font-semibold text-ink/45">
+              {showProjecaoDetalhe ? "Ocultar detalhamento" : "Toque para detalhar receitas e despesas"}
+            </p>
+          </button>
+
+          <div
+            id="projecao-90-detalhe"
+            className={showProjecaoDetalhe ? "mt-4 space-y-3 animate-[bounce_0.45s_ease-in-out_1]" : "hidden"}
+          >
+            <button
+              type="button"
+              aria-expanded={showProjecaoReceitasMes}
+              aria-controls="projecao-90-receitas"
+              onClick={() => setShowProjecaoReceitasMes((prev) => !prev)}
+              className="w-full rounded-xl border border-pine/20 bg-pine/5 px-4 py-3 text-left"
+            >
+              <p className="text-xs font-bold uppercase tracking-wider text-pine">Receitas WALKER (ano anterior)</p>
+              <p className="mt-1 text-lg font-black text-ink">
+                {data.projecao90Dias.receitasPrevistas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </p>
+              <p className="mt-1 text-[11px] font-semibold text-ink/55">
+                {showProjecaoReceitasMes ? "Ocultar receitas por mes" : "Toque para ver receitas por mes"}
+              </p>
+            </button>
+
+            {showProjecaoReceitasMes ? (
+              <div id="projecao-90-receitas" className="rounded-xl border border-pine/15 bg-pine/5 p-3">
+                {data.projecao90Dias.receitasWalkerPorMesAnoAnterior.length === 0 ? (
+                  <p className="text-sm text-ink/70">Sem receitas no periodo base.</p>
+                ) : (
+                  <ul className="space-y-1 text-sm">
+                    {data.projecao90Dias.receitasWalkerPorMesAnoAnterior.map((item) => (
+                      <li key={item.mes} className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
+                        <span className="font-semibold text-ink/70">{item.mes}</span>
+                        <span className="font-bold text-ink">
+                          {item.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              aria-expanded={showProjecaoDespesasDetalhe}
+              aria-controls="projecao-90-despesas"
+              onClick={() => setShowProjecaoDespesasDetalhe((prev) => !prev)}
+              className="w-full rounded-xl border border-coral/20 bg-coral/5 px-4 py-3 text-left"
+            >
+              <p className="text-xs font-bold uppercase tracking-wider text-coral">Despesas WALKER (composicao projetada)</p>
+              <p className="mt-1 text-lg font-black text-ink">
+                {data.projecao90Dias.despesasWalkerPrevistas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </p>
+              <p className="mt-1 text-[11px] font-semibold text-ink/55">
+                {showProjecaoDespesasDetalhe ? "Ocultar composicao" : "Toque para ver avulsas (cartao/parcelas) e fixas"}
+              </p>
+            </button>
+
+            {showProjecaoDespesasDetalhe ? (
+              <div id="projecao-90-despesas" className="rounded-xl border border-coral/15 bg-coral/5 p-3">
+                <ul className="space-y-1 text-sm">
+                  <li className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
+                    <span className="font-semibold text-ink/70">Despesas avulsas (ano anterior)</span>
+                    <span className="text-right font-bold text-ink">
+                      {data.projecao90Dias.despesasWalkerDetalhe.avulsas.total.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL"
+                      })}{" "}
+                      ({(data.projecao90Dias.despesasWalkerDetalhe.avulsas.percentual * 100).toFixed(1)}%)
+                    </span>
+                  </li>
+                  <li className="ml-4 flex items-center justify-between rounded-lg bg-white/60 px-3 py-2">
+                    <span className="font-semibold text-ink/65">Gastos com cartao</span>
+                    <span className="text-right font-bold text-ink">
+                      {data.projecao90Dias.despesasWalkerDetalhe.avulsas.cartao.total.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL"
+                      })}
+                    </span>
+                  </li>
+                  <li className="ml-8 flex items-center justify-between rounded-lg bg-white/50 px-3 py-2">
+                    <span className="font-semibold text-ink/60">Valor parcelas</span>
+                    {data.projecao90Dias.despesasWalkerDetalhe.avulsas.cartao.semDadosParcelas ||
+                    data.projecao90Dias.despesasWalkerDetalhe.avulsas.cartao.valorParcelas === null ? (
+                      <span className="font-bold text-ink/65">S/D</span>
+                    ) : (
+                      <span className="text-right font-bold text-ink">
+                        {data.projecao90Dias.despesasWalkerDetalhe.avulsas.cartao.valorParcelas.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL"
+                        })}
+                      </span>
+                    )}
+                  </li>
+                  <li className="flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
+                    <span className="font-semibold text-ink/70">Despesas fixas (periodo atual)</span>
+                    <span className="text-right font-bold text-ink">
+                      {data.projecao90Dias.despesasWalkerDetalhe.fixas.total.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL"
+                      })}{" "}
+                      ({(data.projecao90Dias.despesasWalkerDetalhe.fixas.percentual * 100).toFixed(1)}%)
+                    </span>
+                  </li>
+                </ul>
+                <div className="mt-3 rounded-lg bg-white/60 p-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-ink/55">Divisao por mes</p>
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {data.projecao90Dias.despesasWalkerPorMes.map((item) => (
+                      <li key={item.mes} className="rounded-lg bg-white/80 px-3 py-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-ink/75">
+                            {item.mes} (base {item.mesBaseAnoAnterior})
+                          </span>
+                          <span className="font-black text-ink">
+                            {item.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-ink/60">
+                          Avulsas:{" "}
+                          {item.avulsas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} | Fixas:{" "}
+                          {item.fixas.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </p>
+                        <p className="text-xs text-ink/55">
+                          Cartao: {item.cartao.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} |
+                          Parcelas:{" "}
+                          {item.semDadosParcelasCartao || item.valorParcelasCartao === null
+                            ? "S/D"
+                            : item.valorParcelasCartao.toLocaleString("pt-BR", {
+                                style: "currency",
+                                currency: "BRL"
+                              })}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </article>
+      ) : null}
 
       {/* Manual Controls Section */}
       <section className="rounded-3xl bg-sand/50 p-6 ring-1 ring-ink/5">
@@ -639,16 +878,8 @@ export default function DashboardPage() {
           >
             {loading ? "Sincronizando..." : "Sincronizar Saldo"}
           </button>
-          <button
-            type="button"
-            className="flex h-12 items-center justify-center rounded-xl bg-white px-6 text-sm font-bold text-ink shadow-sm ring-1 ring-ink/10 active:scale-95 transition-all"
-            onClick={bootstrapSheets}
-          >
-            Reparar Conexão
-          </button>
         </div>
-        
-        {bootstrapMsg && <p className="mt-3 text-center text-[10px] font-bold uppercase text-pine animate-pulse">{bootstrapMsg}</p>}
+
         {error && <p className="mt-3 rounded-xl bg-coral/10 p-3 text-center text-xs font-bold text-coral">{error}</p>}
         {saldoConsistencyAlert && (
           <p className="mt-3 rounded-xl bg-amber-100 p-3 text-center text-xs font-bold text-amber-800">
@@ -656,33 +887,6 @@ export default function DashboardPage() {
           </p>
         )}
       </section>
-
-      {/* Secondary Metrics */}
-      <div className="grid gap-4 md:grid-cols-4">
-        {cards.filter(c => !["Receitas do mes", "Despesas do mes"].includes(c.label)).map((card) => (
-          <article key={card.label} className="group rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-ink/30 group-hover:text-ink/50 transition-colors">{card.label}</p>
-            <p className="mt-2 text-xl font-black tracking-tight text-ink">
-              {card.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-            </p>
-          </article>
-        ))}
-      </div>
-
-      {data?.projecao90Dias ? (
-        <article className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
-          <h2 className="text-lg font-semibold">Detalhe projecao 90 dias</h2>
-          <p className="text-sm text-ink/70">
-            {data.projecao90Dias.periodoInicio} ate {data.projecao90Dias.periodoFim}
-          </p>
-          <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
-            <p>Receitas previstas: R$ {data.projecao90Dias.receitasPrevistas.toFixed(2)}</p>
-            <p>Despesas fixas: R$ {data.projecao90Dias.despesasFixasPrevistas.toFixed(2)}</p>
-            <p>Despesas sazonais: R$ {data.projecao90Dias.despesasSazonaisPrevistas.toFixed(2)}</p>
-            <p>Parcelas: R$ {data.projecao90Dias.parcelasPrevistas.toFixed(2)}</p>
-          </div>
-        </article>
-      ) : null}
 
       <article className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">

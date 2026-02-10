@@ -1,4 +1,5 @@
 import { addDays, isWithinInterval } from "date-fns";
+import { parseNumber } from "@/lib/utils";
 
 export interface PetrobrasRuleSet {
   salario_d10: number;
@@ -9,16 +10,57 @@ export interface PetrobrasRuleSet {
 
 function parseRule(value: string | undefined): number {
   if (!value) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseNumber(value, 0);
+}
+
+function normalizeRuleKey(value: string): string {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 export function parsePetrobrasRules(input: Record<string, string>): PetrobrasRuleSet {
+  const entries = Object.entries(input).map(([rawKey, rawValue]) => ({
+    key: normalizeRuleKey(rawKey),
+    value: parseRule(rawValue)
+  }));
+
+  function hasExact(key: string): boolean {
+    return entries.some((item) => item.key === key);
+  }
+
+  function sumExact(key: string): number {
+    return entries.filter((item) => item.key === key).reduce((acc, item) => acc + item.value, 0);
+  }
+
+  function sumByPattern(pattern: RegExp): number {
+    return entries.filter((item) => pattern.test(item.key)).reduce((acc, item) => acc + item.value, 0);
+  }
+
+  // If canonical keys exist, they win; otherwise, fallback to common aliases/patterns.
+  const salarioD10 = hasExact("salario_d10")
+    ? sumExact("salario_d10")
+    : sumByPattern(/salario.*(?:d_?10|dia_?10|_10$|10$)/);
+  const salarioD25 = hasExact("salario_d25")
+    ? sumExact("salario_d25")
+    : sumByPattern(/salario.*(?:d_?25|dia_?25|_25$|25$)/);
+  const amsGrandeRisco = hasExact("ams_grande_risco")
+    ? sumExact("ams_grande_risco")
+    : sumByPattern(/(?:^|_)ams(?:_|$).*grande.*risco|grande.*risco.*(?:^|_)ams(?:_|$)/);
+  const assistenciaSuplementarMedica = hasExact("assistencia_suplementar_medica")
+    ? sumExact("assistencia_suplementar_medica")
+    : sumByPattern(/assistencia.*suplementar.*medic|assistencia.*medic|suplementar.*medic/);
+
   return {
-    salario_d10: parseRule(input.salario_d10),
-    salario_d25: parseRule(input.salario_d25),
-    ams_grande_risco: parseRule(input.ams_grande_risco),
-    assistencia_suplementar_medica: parseRule(input.assistencia_suplementar_medica)
+    salario_d10: salarioD10,
+    salario_d25: salarioD25,
+    ams_grande_risco: amsGrandeRisco,
+    assistencia_suplementar_medica: assistenciaSuplementarMedica
   };
 }
 

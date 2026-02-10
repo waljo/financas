@@ -22,6 +22,21 @@ function cleanCell(value: unknown): string {
   return String(value);
 }
 
+function normalizeAtribuicao(value: unknown): ContaFixa["atribuicao"] {
+  const normalized = cleanCell(value).trim().toUpperCase();
+  if (normalized === "WALKER") return "WALKER";
+  if (normalized === "DEA") return "DEA";
+  if (normalized === "AMBOS") return "AMBOS";
+  if (normalized === "AMBOS_I") return "AMBOS_I";
+  return "AMBOS";
+}
+
+function normalizePessoaPagadora(value: unknown): ContaFixa["quem_pagou"] {
+  const normalized = cleanCell(value).trim().toUpperCase();
+  if (normalized === "DEA") return "DEA";
+  return "WALKER";
+}
+
 function normalizeText(value: string): string {
   return value
     .normalize("NFD")
@@ -745,7 +760,8 @@ export async function readContasFixas(): Promise<ContaFixa[]> {
         nome: row.nome ?? "",
         dia_vencimento: parseNumber(row.dia_vencimento, 1),
         valor_previsto: row.valor_previsto ? parseNumber(row.valor_previsto, 0) : null,
-        atribuicao: (row.atribuicao as ContaFixa["atribuicao"]) || "AMBOS",
+        atribuicao: normalizeAtribuicao(row.atribuicao),
+        quem_pagou: normalizePessoaPagadora(row.quem_pagou),
         categoria: row.categoria ?? "",
         avisar_dias_antes: row.avisar_dias_antes ?? "5,2",
         ativo: parseBoolean(row.ativo)

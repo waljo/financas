@@ -1,12 +1,14 @@
 import { computeDashboard } from "@/domain/calculations";
 import { jsonError, jsonOk } from "@/lib/http";
+import { ensureCartoesDb, readCartaoMovimentosComAlocacoes } from "@/lib/sheets/cartoesClient";
+import { readLancamentosCached } from "@/lib/sheets/lancamentosCacheClient";
 import {
   readCalendarioAnual,
   readContasFixas,
   readLegacyMonthRealBalance,
-  readLancamentos,
   readReceitasRegras
 } from "@/lib/sheets/sheetsClient";
+import type { CartaoMovimentoComAlocacoes } from "@/lib/types";
 import { reportQuerySchema } from "@/lib/validation/schemas";
 
 export const runtime = "nodejs";
@@ -21,15 +23,23 @@ export async function GET(request: Request) {
     const fonteSaldoReal: "legacy" = "legacy";
 
     const [lancamentos, contasFixas, calendarioAnual, receitasRegras] = await Promise.all([
-      readLancamentos(),
+      readLancamentosCached(),
       readContasFixas(),
       readCalendarioAnual(),
       readReceitasRegras()
     ]);
+    let cartaoMovimentos: CartaoMovimentoComAlocacoes[] = [];
+    try {
+      await ensureCartoesDb();
+      cartaoMovimentos = await readCartaoMovimentosComAlocacoes();
+    } catch {
+      cartaoMovimentos = [];
+    }
 
     const dashboard = computeDashboard({
       month: query.mes,
       lancamentos,
+      cartaoMovimentos,
       contasFixas,
       calendarioAnual,
       receitasRegras,

@@ -89,6 +89,28 @@ export function AppNav() {
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const moreRouteActive = moreLinks.some((item) => item.href === pathname);
 
+  const probeDeviceOnline = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    if (!window.navigator.onLine) {
+      setDeviceOnline(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetch(`/api/health?ts=${Date.now()}`, {
+        cache: "no-store",
+        signal: controller.signal
+      });
+      setDeviceOnline(response.ok);
+    } catch {
+      setDeviceOnline(false);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, []);
+
   useEffect(() => {
     setMoreOpen(false);
   }, [pathname]);
@@ -102,16 +124,24 @@ export function AppNav() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     setDeviceOnline(window.navigator.onLine);
+    void probeDeviceOnline();
 
-    const update = () => setDeviceOnline(window.navigator.onLine);
+    const update = () => {
+      void probeDeviceOnline();
+    };
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
+
+    const interval = window.setInterval(() => {
+      void probeDeviceOnline();
+    }, 30000);
 
     return () => {
       window.removeEventListener("online", update);
       window.removeEventListener("offline", update);
+      window.clearInterval(interval);
     };
-  }, []);
+  }, [probeDeviceOnline]);
 
   useEffect(() => {
     setPendingOfflineWrites(getLancamentosOutboxCount());

@@ -1,5 +1,6 @@
-const APP_CACHE = "financas-app-v1";
-const API_CACHE = "financas-api-v1";
+const APP_CACHE = "financas-app-v2";
+const API_CACHE = "financas-api-v2";
+const STATIC_CACHE = "financas-static-v2";
 const OFFLINE_FALLBACK_URL = "/offline.html";
 
 const CORE_PAGES = ["/", "/lancar", "/contas-fixas", "/relatorios", "/cartoes", OFFLINE_FALLBACK_URL];
@@ -11,6 +12,13 @@ function isSameOrigin(requestUrl) {
 
 function shouldHandleApi(pathname) {
   return API_CACHE_ALLOWLIST.some((prefix) => pathname.startsWith(prefix));
+}
+
+function shouldHandleStatic(pathname) {
+  if (pathname.startsWith("/_next/")) return true;
+  if (pathname === "/sw.js") return true;
+  if (pathname === "/manifest.webmanifest") return true;
+  return /\.(?:js|css|mjs|png|jpg|jpeg|webp|svg|ico|woff2?)$/i.test(pathname);
 }
 
 self.addEventListener("install", (event) => {
@@ -38,7 +46,7 @@ self.addEventListener("activate", (event) => {
       const keys = await caches.keys();
       await Promise.all(
         keys
-          .filter((key) => key !== APP_CACHE && key !== API_CACHE)
+          .filter((key) => key !== APP_CACHE && key !== API_CACHE && key !== STATIC_CACHE)
           .map((key) => caches.delete(key))
       );
       await self.clients.claim();
@@ -58,6 +66,30 @@ self.addEventListener("fetch", (event) => {
   if (!isSameOrigin(request.url)) return;
 
   const url = new URL(request.url);
+
+  if (shouldHandleStatic(url.pathname)) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(STATIC_CACHE);
+        const cached = await cache.match(request);
+        if (cached) return cached;
+
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            cache.put(request, response.clone());
+          }
+          return response;
+        } catch {
+          return new Response("Asset indisponível offline.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" }
+          });
+        }
+      })()
+    );
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(

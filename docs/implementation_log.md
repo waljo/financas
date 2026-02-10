@@ -120,6 +120,7 @@ Resumo:
 - Operacoes de lancamento na tela `/lancar` agora entram na fila quando offline.
 - Sincronizacao automatica ao reconectar e opcao manual de flush de pendencias.
 - Menu inferior (`Mais`) passou a mostrar pendencias offline e incluir flush antes da sync manual.
+- Refinada deteccao offline por ping em `/api/health` e cache de assets `/_next/*` no Service Worker.
 
 Arquivos alterados:
 - `src/lib/offline/lancamentosOutbox.ts`

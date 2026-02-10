@@ -37,6 +37,16 @@ App de financas pessoais com foco em lancamento rapido, relatorios, alertas e im
 - `POST /api/sync/run` -> executa sincronizacao manual (recarrega cache local a partir do Sheets).
 - UI mobile: menu `Mais` contem o card de status e acao `Sincronizar agora`.
 
+## 3.2) Offline leitura (Fase 2 - inicial)
+- Service Worker em `public/sw.js`.
+- Cache de leitura para:
+  - `GET /api/dashboard`
+  - `GET /api/lancamentos`
+  - `GET /api/contas-fixas`
+  - `GET /api/sync/status`
+- Com internet: prioriza rede e atualiza cache.
+- Sem internet: responde do cache local quando houver.
+
 ## 4) Estrutura do projeto
 - `src/lib/sheets` -> OAuth + wrapper de leitura/escrita no Sheets
 - `src/domain` -> regras financeiras (divisao, saldo, projecao)

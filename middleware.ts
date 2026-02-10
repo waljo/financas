@@ -20,6 +20,8 @@ function shouldBypass(pathname: string): boolean {
   if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico") return true;
   if (pathname === "/api/health") return true;
+  if (pathname === "/sw.js") return true;
+  if (pathname === "/manifest.webmanifest") return true;
   return false;
 }
 

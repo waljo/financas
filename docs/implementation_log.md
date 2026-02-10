@@ -99,3 +99,15 @@ Arquivos alterados:
 - `Dockerfile`
 - `README.md`
 - `docs/deploy_checklist.md`
+
+## 2026-02-10 - Fase 2 (offline leitura via Service Worker)
+Resumo:
+- Implementado Service Worker para cache offline de leitura.
+- Registro automatico do SW na navegacao principal.
+- Adicionado aviso de modo offline por cache no menu de sincronizacao.
+
+Arquivos alterados:
+- `public/sw.js`
+- `src/components/AppNav.tsx`
+- `middleware.ts`
+- `README.md`

@@ -106,6 +106,22 @@ export function AppNav() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator)) return;
+
+    void (async () => {
+      try {
+        const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+      } catch {
+        // Registro silencioso: o app continua funcional sem offline cache.
+      }
+    })();
+  }, []);
+
   async function loadSyncStatus(options?: { checkConnection?: boolean; silent?: boolean }) {
     if (!options?.silent) {
       setSyncStatusLoading(true);
@@ -292,6 +308,7 @@ export function AppNav() {
                           ? "Conexão com Sheets indisponível"
                           : "Conexão com Sheets OK"}
                     </p>
+                    {!deviceOnline ? <p className="text-[11px] text-coral">Offline: leitura por cache local.</p> : null}
                     <p className="text-[11px] text-ink/60">Última sync: {formatDateTime(syncStatus?.lastSuccessAt ?? null)}</p>
                     <p className="text-[11px] text-ink/60">Cache lançamentos: {syncStatus?.cache?.lancamentos.count ?? 0}</p>
                   </div>

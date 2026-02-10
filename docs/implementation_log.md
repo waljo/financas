@@ -113,3 +113,16 @@ Arquivos alterados:
 - `src/components/AppNav.tsx`
 - `middleware.ts`
 - `README.md`
+
+## 2026-02-10 - Fase 3 (escrita offline inicial)
+Resumo:
+- Implementada outbox local de lancamentos para `POST/PUT/DELETE`.
+- Operacoes de lancamento na tela `/lancar` agora entram na fila quando offline.
+- Sincronizacao automatica ao reconectar e opcao manual de flush de pendencias.
+- Menu inferior (`Mais`) passou a mostrar pendencias offline e incluir flush antes da sync manual.
+
+Arquivos alterados:
+- `src/lib/offline/lancamentosOutbox.ts`
+- `src/app/lancar/page.tsx`
+- `src/components/AppNav.tsx`
+- `README.md`

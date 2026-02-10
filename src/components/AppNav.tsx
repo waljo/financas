@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  flushLancamentosOutbox,
+  getLancamentosOutboxCount,
+  subscribeLancamentosOutboxChange
+} from "@/lib/offline/lancamentosOutbox";
 
 const primaryLinks = [
   {
@@ -79,6 +84,8 @@ export function AppNav() {
   const [syncStatusLoading, setSyncStatusLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [deviceOnline, setDeviceOnline] = useState(true);
+  const [pendingOfflineWrites, setPendingOfflineWrites] = useState(0);
+  const [flushingOfflineWrites, setFlushingOfflineWrites] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const moreRouteActive = moreLinks.some((item) => item.href === pathname);
 
@@ -104,6 +111,14 @@ export function AppNav() {
       window.removeEventListener("online", update);
       window.removeEventListener("offline", update);
     };
+  }, []);
+
+  useEffect(() => {
+    setPendingOfflineWrites(getLancamentosOutboxCount());
+    const unsubscribe = subscribeLancamentosOutboxChange((count) => {
+      setPendingOfflineWrites(count);
+    });
+    return unsubscribe;
   }, []);
 
   useEffect(() => {
@@ -147,6 +162,43 @@ export function AppNav() {
     }
   }
 
+  const flushOfflineWrites = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (flushingOfflineWrites) {
+        return { applied: 0, dropped: 0, remaining: pendingOfflineWrites, stoppedByOffline: false };
+      }
+      if (typeof window !== "undefined" && !window.navigator.onLine) {
+        return { applied: 0, dropped: 0, remaining: pendingOfflineWrites, stoppedByOffline: true };
+      }
+
+      setFlushingOfflineWrites(true);
+      try {
+        const result = await flushLancamentosOutbox();
+        setPendingOfflineWrites(result.remaining);
+
+        if (!options?.silent && result.applied > 0) {
+          setNotice({
+            tone: "success",
+            message: `${result.applied} lançamento(s) offline sincronizado(s).`
+          });
+        }
+        if (!options?.silent && result.dropped > 0) {
+          setNotice({
+            tone: "error",
+            message: `${result.dropped} operação(ões) offline inválida(s) foram descartadas.`
+          });
+        }
+        if (result.applied > 0) {
+          router.refresh();
+        }
+        return result;
+      } finally {
+        setFlushingOfflineWrites(false);
+      }
+    },
+    [flushingOfflineWrites, pendingOfflineWrites, router]
+  );
+
   useEffect(() => {
     void loadSyncStatus({ silent: true });
   }, []);
@@ -155,6 +207,24 @@ export function AppNav() {
     if (!moreOpen) return;
     void loadSyncStatus({ checkConnection: true });
   }, [moreOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOnline = () => {
+      void flushOfflineWrites();
+      void loadSyncStatus({ checkConnection: true, silent: true });
+    };
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [flushOfflineWrites]);
+
+  useEffect(() => {
+    if (!deviceOnline) return;
+    if (pendingOfflineWrites <= 0) return;
+    void flushOfflineWrites({ silent: true });
+  }, [deviceOnline, pendingOfflineWrites, flushOfflineWrites]);
 
   async function repairConnection() {
     if (repairLoading) return;
@@ -186,6 +256,7 @@ export function AppNav() {
     if (syncLoading) return;
     try {
       setSyncLoading(true);
+      const outboxResult = await flushOfflineWrites({ silent: true });
       const response = await fetch("/api/sync/run", { method: "POST" });
       const payload = await response.json();
       if (!response.ok) {
@@ -194,7 +265,10 @@ export function AppNav() {
 
       setNotice({
         tone: "success",
-        message: payload.message ?? "Sincronização concluída."
+        message:
+          outboxResult.applied > 0
+            ? `${outboxResult.applied} offline + ${payload.message ?? "Sincronização concluída."}`
+            : payload.message ?? "Sincronização concluída."
       });
 
       setMoreOpen(false);
@@ -309,6 +383,11 @@ export function AppNav() {
                           : "Conexão com Sheets OK"}
                     </p>
                     {!deviceOnline ? <p className="text-[11px] text-coral">Offline: leitura por cache local.</p> : null}
+                    {pendingOfflineWrites > 0 ? (
+                      <p className="text-[11px] text-coral">
+                        {pendingOfflineWrites} pendência(s) de lançamento offline.
+                      </p>
+                    ) : null}
                     <p className="text-[11px] text-ink/60">Última sync: {formatDateTime(syncStatus?.lastSuccessAt ?? null)}</p>
                     <p className="text-[11px] text-ink/60">Cache lançamentos: {syncStatus?.cache?.lancamentos.count ?? 0}</p>
                   </div>
@@ -316,10 +395,10 @@ export function AppNav() {
                   <button
                     type="button"
                     onClick={runSyncNow}
-                    disabled={syncLoading}
+                    disabled={syncLoading || flushingOfflineWrites}
                     className="mt-1 block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-ink/80 hover:bg-sand disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {syncLoading ? "Sincronizando..." : "Sincronizar agora"}
+                    {syncLoading || flushingOfflineWrites ? "Sincronizando..." : "Sincronizar agora"}
                   </button>
 
                   <button

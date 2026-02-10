@@ -3,6 +3,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ContaFixa, Lancamento } from "@/lib/types";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import {
+  enqueueLancamentosOutboxOperation,
+  flushLancamentosOutbox,
+  getLancamentosOutboxCount,
+  subscribeLancamentosOutboxChange
+} from "@/lib/offline/lancamentosOutbox";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -50,6 +56,11 @@ function formatDateBr(value: string) {
 
 function parseMoneyInput(value: string) {
   return Number(value.replace(",", ".").trim());
+}
+
+function isOfflineError(error: unknown): boolean {
+  if (typeof window !== "undefined" && !window.navigator.onLine) return true;
+  return error instanceof TypeError;
 }
 
 const atribuicoes = ["WALKER", "DEA", "AMBOS", "AMBOS_I"];
@@ -134,6 +145,9 @@ export default function LancarPage() {
   });
   const [message, setMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [deviceOnline, setDeviceOnline] = useState(true);
+  const [pendingOfflineWrites, setPendingOfflineWrites] = useState(0);
+  const [flushingOfflineWrites, setFlushingOfflineWrites] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoadingData(true);
@@ -201,6 +215,80 @@ export default function LancarPage() {
     if (mode !== "receita") return;
     void loadReceitas(receitasMonth);
   }, [mode, receitasMonth, loadReceitas]);
+
+  const flushOfflineWrites = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (flushingOfflineWrites) return;
+      if (typeof window !== "undefined" && !window.navigator.onLine) return;
+
+      setFlushingOfflineWrites(true);
+      try {
+        const result = await flushLancamentosOutbox();
+        setPendingOfflineWrites(result.remaining);
+
+        if (!options?.silent && result.applied > 0) {
+          setMessage(`${result.applied} lançamento(s) offline sincronizado(s).`);
+        }
+        if (!options?.silent && result.dropped > 0) {
+          setError(`${result.dropped} operação(ões) offline inválida(s) foram descartadas.`);
+        }
+
+        if (result.applied > 0) {
+          await Promise.all([loadData(), mode === "receita" ? loadReceitas(receitasMonth) : Promise.resolve()]);
+        }
+      } finally {
+        setFlushingOfflineWrites(false);
+      }
+    },
+    [flushingOfflineWrites, loadData, loadReceitas, mode, receitasMonth]
+  );
+
+  useEffect(() => {
+    setPendingOfflineWrites(getLancamentosOutboxCount());
+    const unsubscribe = subscribeLancamentosOutboxChange((count) => {
+      setPendingOfflineWrites(count);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setDeviceOnline(window.navigator.onLine);
+    const handleStatus = () => {
+      setDeviceOnline(window.navigator.onLine);
+    };
+    window.addEventListener("online", handleStatus);
+    window.addEventListener("offline", handleStatus);
+    return () => {
+      window.removeEventListener("online", handleStatus);
+      window.removeEventListener("offline", handleStatus);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOnline = () => {
+      void flushOfflineWrites();
+    };
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [flushOfflineWrites]);
+
+  useEffect(() => {
+    if (!deviceOnline) return;
+    void flushOfflineWrites({ silent: true });
+  }, [deviceOnline, flushOfflineWrites]);
+
+  function queueOfflineLancamentoOperation(input: {
+    method: "POST" | "PUT" | "DELETE";
+    url: string;
+    body?: unknown;
+  }) {
+    enqueueLancamentosOutboxOperation(input);
+    setPendingOfflineWrites(getLancamentosOutboxCount());
+  }
 
   const launchCountByConta = useMemo(() => {
     const output = new Map<string, number>();
@@ -341,6 +429,28 @@ function handleReceitasMonthChange(nextMonth: string) {
         quem_pagou: "WALKER" as const
       };
 
+      if (typeof window !== "undefined" && !window.navigator.onLine) {
+        queueOfflineLancamentoOperation({
+          method: "PUT",
+          url: "/api/lancamentos",
+          body: payload
+        });
+        setReceitasMes((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  ...payload,
+                  valor
+                }
+              : item
+          )
+        );
+        setMessage("Sem internet: edição salva localmente e pendente de sincronização.");
+        setEditingReceitaId(null);
+        return;
+      }
+
       const response = await fetch("/api/lancamentos", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -355,7 +465,41 @@ function handleReceitasMonthChange(nextMonth: string) {
       setEditingReceitaId(null);
       await Promise.all([loadReceitas(receitasMonth), loadData()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao atualizar receita");
+      if (isOfflineError(err)) {
+        const payload = {
+          id,
+          data: dateWithMonth(receitaEditForm.data || `${receitasMonth}-01`, receitasMonth),
+          tipo: "receita" as const,
+          descricao: receitaEditForm.descricao.trim(),
+          categoria: receitaEditForm.categoria.trim() || "RECEITAS",
+          valor,
+          atribuicao: "WALKER" as const,
+          metodo: receitaAtual.metodo || "outro",
+          parcela_total: null,
+          parcela_numero: null,
+          observacao: receitaEditForm.observacao ?? "",
+          quem_pagou: "WALKER" as const
+        };
+        queueOfflineLancamentoOperation({
+          method: "PUT",
+          url: "/api/lancamentos",
+          body: payload
+        });
+        setReceitasMes((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  ...payload
+                }
+              : item
+          )
+        );
+        setMessage("Sem internet: edição salva localmente e pendente de sincronização.");
+        setEditingReceitaId(null);
+      } else {
+        setError(err instanceof Error ? err.message : "Erro ao atualizar receita");
+      }
     } finally {
       setSavingReceitaId(null);
     }
@@ -370,6 +514,19 @@ function handleReceitasMonthChange(nextMonth: string) {
     setSavingReceitaId(id);
 
     try {
+      if (typeof window !== "undefined" && !window.navigator.onLine) {
+        queueOfflineLancamentoOperation({
+          method: "DELETE",
+          url: `/api/lancamentos?id=${id}`
+        });
+        setReceitasMes((prev) => prev.filter((item) => item.id !== id));
+        setMessage("Sem internet: exclusão registrada localmente e pendente de sincronização.");
+        if (editingReceitaId === id) {
+          setEditingReceitaId(null);
+        }
+        return;
+      }
+
       const response = await fetch(`/api/lancamentos?id=${id}`, { method: "DELETE" });
       const result = await response.json();
       if (!response.ok) {
@@ -382,7 +539,19 @@ function handleReceitasMonthChange(nextMonth: string) {
       }
       await Promise.all([loadReceitas(receitasMonth), loadData()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao excluir receita");
+      if (isOfflineError(err)) {
+        queueOfflineLancamentoOperation({
+          method: "DELETE",
+          url: `/api/lancamentos?id=${id}`
+        });
+        setReceitasMes((prev) => prev.filter((item) => item.id !== id));
+        setMessage("Sem internet: exclusão registrada localmente e pendente de sincronização.");
+        if (editingReceitaId === id) {
+          setEditingReceitaId(null);
+        }
+      } else {
+        setError(err instanceof Error ? err.message : "Erro ao excluir receita");
+      }
     } finally {
       setSavingReceitaId(null);
     }
@@ -424,6 +593,35 @@ function handleReceitasMonthChange(nextMonth: string) {
         quem_pagou: conta.quem_pagou || "WALKER"
       };
 
+      if (typeof window !== "undefined" && !window.navigator.onLine) {
+        queueOfflineLancamentoOperation({
+          method: "POST",
+          url: "/api/lancamentos",
+          body: payload
+        });
+        setLancamentosMes((prev) => [
+          {
+            id: `offline-${Date.now()}`,
+            data: payload.data,
+            tipo: "despesa",
+            descricao: payload.descricao,
+            categoria: payload.categoria,
+            valor: payload.valor,
+            atribuicao: payload.atribuicao,
+            metodo: "outro",
+            parcela_total: null,
+            parcela_numero: null,
+            observacao: payload.observacao,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            quem_pagou: payload.quem_pagou
+          },
+          ...prev
+        ]);
+        setMessage(`Sem internet: "${conta.nome}" salva localmente e pendente de sincronização.`);
+        return;
+      }
+
       const response = await fetch("/api/lancamentos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -438,7 +636,48 @@ function handleReceitasMonthChange(nextMonth: string) {
       setMessage(`"${conta.nome}" salva com sucesso.`);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao lançar conta fixa");
+      if (isOfflineError(err)) {
+        const payload = {
+          data: targetDate,
+          tipo: "despesa",
+          descricao: conta.nome,
+          categoria: conta.categoria || "CONTAS_FIXAS",
+          valor: value,
+          atribuicao: conta.atribuicao,
+          metodo: "outro",
+          parcela_total: null,
+          parcela_numero: null,
+          observacao: `[CONTA_FIXA:${conta.id}] Lançado pelo quadro de contas fixas`,
+          quem_pagou: conta.quem_pagou || "WALKER"
+        };
+        queueOfflineLancamentoOperation({
+          method: "POST",
+          url: "/api/lancamentos",
+          body: payload
+        });
+        setLancamentosMes((prev) => [
+          {
+            id: `offline-${Date.now()}`,
+            data: payload.data,
+            tipo: "despesa",
+            descricao: payload.descricao,
+            categoria: payload.categoria,
+            valor: payload.valor,
+            atribuicao: payload.atribuicao,
+            metodo: "outro",
+            parcela_total: null,
+            parcela_numero: null,
+            observacao: payload.observacao,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            quem_pagou: payload.quem_pagou
+          },
+          ...prev
+        ]);
+        setMessage(`Sem internet: "${conta.nome}" salva localmente e pendente de sincronização.`);
+      } else {
+        setError(err instanceof Error ? err.message : "Erro ao lançar conta fixa");
+      }
     } finally {
       setSavingFixedKey("");
     }
@@ -470,6 +709,28 @@ function handleReceitasMonthChange(nextMonth: string) {
         parcela_numero: tipo === "despesa" && form.parcela_numero ? Number(form.parcela_numero) : null
       };
 
+      if (typeof window !== "undefined" && !window.navigator.onLine) {
+        queueOfflineLancamentoOperation({
+          method: "POST",
+          url: "/api/lancamentos",
+          body: payload
+        });
+        setMessage("Sem internet: lançamento salvo localmente e pendente de sincronização.");
+        setForm(
+          mode === "receita"
+            ? {
+                ...initialState,
+                data: dateWithMonth(initialState.data, receitasMonth),
+                tipo: "receita",
+                atribuicao: "WALKER",
+                quem_pagou: "WALKER",
+                categoria: "RECEITAS"
+              }
+            : { ...initialState, tipo: "despesa" }
+        );
+        return;
+      }
+
       const response = await fetch("/api/lancamentos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -496,7 +757,40 @@ function handleReceitasMonthChange(nextMonth: string) {
       );
       await Promise.all([loadData(), tipo === "receita" ? loadReceitas(receitasMonth) : Promise.resolve()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado");
+      if (isOfflineError(err)) {
+        const tipo: Lancamento["tipo"] = mode === "receita" ? "receita" : "despesa";
+        const valor = parseMoneyInput(form.valor);
+        const payload = {
+          ...form,
+          data: tipo === "receita" ? dateWithMonth(form.data, receitasMonth) : form.data,
+          tipo,
+          atribuicao: tipo === "receita" ? "WALKER" : form.atribuicao,
+          quem_pagou: tipo === "receita" ? "WALKER" : form.quem_pagou,
+          valor,
+          parcela_total: tipo === "despesa" && form.parcela_total ? Number(form.parcela_total) : null,
+          parcela_numero: tipo === "despesa" && form.parcela_numero ? Number(form.parcela_numero) : null
+        };
+        queueOfflineLancamentoOperation({
+          method: "POST",
+          url: "/api/lancamentos",
+          body: payload
+        });
+        setMessage("Sem internet: lançamento salvo localmente e pendente de sincronização.");
+        setForm(
+          mode === "receita"
+            ? {
+                ...initialState,
+                data: dateWithMonth(initialState.data, receitasMonth),
+                tipo: "receita",
+                atribuicao: "WALKER",
+                quem_pagou: "WALKER",
+                categoria: "RECEITAS"
+              }
+            : { ...initialState, tipo: "despesa" }
+        );
+      } else {
+        setError(err instanceof Error ? err.message : "Erro inesperado");
+      }
     } finally {
       setSaving(false);
     }
@@ -508,6 +802,26 @@ function handleReceitasMonthChange(nextMonth: string) {
         <h1 className="text-2xl font-bold tracking-tight text-ink">Novo lançamento</h1>
         <p className="text-sm font-medium text-ink/50">Como você quer registrar hoje?</p>
       </header>
+
+      <section className="rounded-2xl border border-ink/10 bg-white p-4 shadow-sm">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-ink/40">Conectividade</p>
+        <p className={`mt-1 text-xs font-bold ${deviceOnline ? "text-pine" : "text-coral"}`}>
+          {deviceOnline ? "Online" : "Offline"}
+        </p>
+        <p className="mt-1 text-xs font-semibold text-ink/65">
+          Pendências offline: {pendingOfflineWrites}
+        </p>
+        {pendingOfflineWrites > 0 ? (
+          <button
+            type="button"
+            className="mt-3 h-10 rounded-xl bg-ink px-4 text-[10px] font-black uppercase tracking-widest text-sand disabled:opacity-50"
+            disabled={!deviceOnline || flushingOfflineWrites}
+            onClick={() => void flushOfflineWrites()}
+          >
+            {flushingOfflineWrites ? "Sincronizando..." : "Sincronizar pendências"}
+          </button>
+        ) : null}
+      </section>
 
       {/* Mode Selector - Premium Cards */}
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">

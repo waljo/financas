@@ -47,6 +47,14 @@ App de financas pessoais com foco em lancamento rapido, relatorios, alertas e im
 - Com internet: prioriza rede e atualiza cache.
 - Sem internet: responde do cache local quando houver.
 
+## 3.3) Escrita offline (Fase 3 - inicial)
+- Outbox local de lançamentos em `src/lib/offline/lancamentosOutbox.ts`.
+- Tela `/lancar` agora:
+  - salva `POST/PUT/DELETE` em fila quando offline,
+  - mostra quantidade de pendências offline,
+  - sincroniza pendências ao reconectar.
+- Menu `Mais` mostra pendências de lançamentos offline e tenta flush automatico quando online.
+
 ## 4) Estrutura do projeto
 - `src/lib/sheets` -> OAuth + wrapper de leitura/escrita no Sheets
 - `src/domain` -> regras financeiras (divisao, saldo, projecao)

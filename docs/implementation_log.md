@@ -121,6 +121,7 @@ Resumo:
 - Sincronizacao automatica ao reconectar e opcao manual de flush de pendencias.
 - Menu inferior (`Mais`) passou a mostrar pendencias offline e incluir flush antes da sync manual.
 - Refinada deteccao offline por ping em `/api/health` e cache de assets `/_next/*` no Service Worker.
+- Hotfix: cache offline de `/api/categorias` e fallback local no seletor de categorias para evitar `Failed to fetch`.
 
 Arquivos alterados:
 - `src/lib/offline/lancamentosOutbox.ts`

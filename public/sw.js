@@ -1,10 +1,16 @@
-const APP_CACHE = "financas-app-v2";
-const API_CACHE = "financas-api-v2";
-const STATIC_CACHE = "financas-static-v2";
+const APP_CACHE = "financas-app-v3";
+const API_CACHE = "financas-api-v3";
+const STATIC_CACHE = "financas-static-v3";
 const OFFLINE_FALLBACK_URL = "/offline.html";
 
 const CORE_PAGES = ["/", "/lancar", "/contas-fixas", "/relatorios", "/cartoes", OFFLINE_FALLBACK_URL];
-const API_CACHE_ALLOWLIST = ["/api/dashboard", "/api/lancamentos", "/api/contas-fixas", "/api/sync/status"];
+const API_CACHE_ALLOWLIST = [
+  "/api/dashboard",
+  "/api/lancamentos",
+  "/api/contas-fixas",
+  "/api/categorias",
+  "/api/sync/status"
+];
 
 function isSameOrigin(requestUrl) {
   return new URL(requestUrl).origin === self.location.origin;

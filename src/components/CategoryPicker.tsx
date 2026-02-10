@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeCategoryName, normalizeCategorySlug } from "@/lib/categories";
 
 type CategoriaOption = {
@@ -11,6 +11,8 @@ type CategoriaOption = {
   usoTotal?: number;
   legacy?: boolean;
 };
+
+const CATEGORY_CACHE_KEY = "financas.categories.cache.v1";
 
 interface CategoryPickerProps {
   label: string;
@@ -34,25 +36,55 @@ export function CategoryPicker(props: CategoryPickerProps) {
   const currentValue = normalizeCategoryName(props.value);
   const currentSlug = normalizeCategorySlug(currentValue);
 
-  async function load() {
+  const readCachedOptions = useCallback((): CategoriaOption[] => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(CATEGORY_CACHE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as CategoriaOption[];
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item) => item && typeof item.nome === "string" && typeof item.slug === "string");
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const writeCachedOptions = useCallback((next: CategoriaOption[]) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(CATEGORY_CACHE_KEY, JSON.stringify(next));
+    } catch {
+      // Sem impacto funcional se storage estiver indisponivel.
+    }
+  }, []);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const response = await fetch("/api/categorias?ativo=true");
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? "Erro ao carregar categorias");
-      setOptions((payload.data ?? []) as CategoriaOption[]);
+      const loaded = (payload.data ?? []) as CategoriaOption[];
+      setOptions(loaded);
+      writeCachedOptions(loaded);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado ao carregar categorias");
+      const cached = readCachedOptions();
+      if (cached.length > 0) {
+        setOptions(cached);
+        setError("Sem conexão: usando categorias salvas localmente.");
+      } else {
+        setError(err instanceof Error ? err.message : "Erro inesperado ao carregar categorias");
+      }
     } finally {
       setLoading(false);
     }
-  }
+  }, [readCachedOptions, writeCachedOptions]);
 
   useEffect(() => {
     if (!open) return;
     void load();
-  }, [open]);
+  }, [open, load]);
 
   useEffect(() => {
     if (!open) return;
@@ -88,6 +120,9 @@ export function CategoryPicker(props: CategoryPickerProps) {
     setCreating(true);
     setError("");
     try {
+      if (typeof window !== "undefined" && !window.navigator.onLine) {
+        throw new Error("Sem conexão: não é possível criar categoria nova offline.");
+      }
       const response = await fetch("/api/categorias", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,7 +134,9 @@ export function CategoryPicker(props: CategoryPickerProps) {
       const created = payload.data as CategoriaOption;
       setOptions((prev) => {
         if (prev.some((item) => item.slug === created.slug)) return prev;
-        return [...prev, created];
+        const next = [...prev, created];
+        writeCachedOptions(next);
+        return next;
       });
       props.onChange(created.nome);
       setSearch("");

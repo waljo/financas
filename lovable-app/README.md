@@ -25,4 +25,4 @@ Frontend: `http://localhost:5173`
 - Tela `categorias` migrada com CRUD e normalização
 - Tela `relatorios` migrada com detalhamento de parcelas
 - Tela `importar` migrada com fluxo guiado completo (metadata, preview, importação)
-- Pendente principal: `calendario-anual`
+- Tela `calendario-anual` migrada com CRUD e agrupamento por mês

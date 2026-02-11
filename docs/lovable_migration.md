@@ -57,6 +57,13 @@ Entregue na etapa atual+4:
   - preview por mês
   - execução de importação
 
+Entregue na etapa atual+5:
+- migração da tela de calendário anual (`lovable-app/src/pages/CalendarioAnualPage.tsx`)
+  - CRUD de eventos sazonais
+  - agrupamento por mês
+  - categoria via `CategoryPicker`
+  - edição/exclusão de eventos
+
 ## Estrutura criada
 - `lovable-app/package.json`
 - `lovable-app/vite.config.ts`
@@ -82,8 +89,8 @@ Arquivo opcional:
 Sem `VITE_API_BASE_URL`, o Vite usa proxy local para `http://localhost:3000`.
 
 ## Próximas fases recomendadas
-1. Migrar `calendario-anual` (última tela principal ainda fora do Lovable)
-2. Revisar UX mobile final e estados offline/sync no frontend Lovable
+1. Revisar UX mobile final e estados offline/sync no frontend Lovable
+2. Padronizar componentes compartilhados (cards, modais, inputs)
 3. Remover dependência de Next no frontend após cobertura total das telas
 
 ## Observações

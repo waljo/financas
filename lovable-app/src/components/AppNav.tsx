@@ -9,6 +9,7 @@ const primaryLinks = [
 const moreLinks = [
   { to: "/relatorios", label: "Relatorios" },
   { to: "/categorias", label: "Categorias" },
+  { to: "/calendario-anual", label: "Calendario" },
   { to: "/importar", label: "Importar" },
   { to: "/contas-fixas", label: "Contas fixas" }
 ];

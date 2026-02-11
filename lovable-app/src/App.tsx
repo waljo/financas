@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppNav } from "./components/AppNav";
+import CalendarioAnualPage from "./pages/CalendarioAnualPage";
 import CategoriasPage from "./pages/CategoriasPage";
 import CartoesPage from "./pages/CartoesPage";
 import ContasFixasPage from "./pages/ContasFixasPage";
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/cartoes" element={<CartoesPage />} />
           <Route path="/lancar" element={<LancarPage />} />
           <Route path="/categorias" element={<CategoriasPage />} />
+          <Route path="/calendario-anual" element={<CalendarioAnualPage />} />
           <Route path="/importar" element={<ImportarPage />} />
           <Route path="/contas-fixas" element={<ContasFixasPage />} />
           <Route path="/relatorios" element={<RelatoriosPage />} />

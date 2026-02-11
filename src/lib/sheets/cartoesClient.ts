@@ -384,7 +384,7 @@ export async function saveCartaoMovimento(input: {
     });
 
   const current = conn
-    .prepare("SELECT created_at, mes_ref FROM cartao_movimentos WHERE id = ?")
+    .prepare("SELECT created_at, mes_ref, tx_key, cartao_id FROM cartao_movimentos WHERE id = ?")
     .get(movementId) as Record<string, unknown> | undefined;
 
   if (input.id && !current) {
@@ -418,6 +418,30 @@ export async function saveCartaoMovimento(input: {
   }));
 
   runInTransaction(() => {
+    const shouldCheckDuplicate =
+      !current ||
+      row.tx_key !== asText(current.tx_key) ||
+      row.cartao_id !== asText(current.cartao_id);
+
+    if (shouldCheckDuplicate) {
+      const duplicated = conn
+        .prepare(
+          `SELECT id
+           FROM cartao_movimentos
+           WHERE cartao_id = ? AND tx_key = ? AND id <> ?
+           LIMIT 1`
+        )
+        .get(row.cartao_id, row.tx_key, row.id) as Record<string, unknown> | undefined;
+
+      if (duplicated) {
+        throw new AppError(
+          "Lancamento duplicado: ja existe uma compra com os mesmos dados para este cartao.",
+          409,
+          "DUPLICATE_MOVIMENTO"
+        );
+      }
+    }
+
     if (current) {
       conn
         .prepare(

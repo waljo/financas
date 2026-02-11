@@ -128,3 +128,8 @@ Arquivos alterados:
 - `src/app/lancar/page.tsx`
 - `src/components/AppNav.tsx`
 - `README.md`
+
+## 2026-02-10 - Encerramento de sessao (decisao arquitetural)
+Resumo:
+- Decisao registrada com o usuario: iniciar migracao progressiva para Supabase na proxima etapa do projeto.
+- Objetivo da migracao: evoluir autenticacao, sync offline/online, observabilidade e resolucao de conflitos com base em Postgres + APIs do Supabase, mantendo compatibilidade com planilha legada durante transicao.

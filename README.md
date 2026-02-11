@@ -157,6 +157,7 @@ Este projeto utiliza prompts versionados para garantir:
 - `docs/implementation_log.md`: log incremental das implementacoes e validacoes
 - `docs/deploy_checklist.md`: checklist pratico de deploy da Fase 1
 - `docs/deploy_railway_runbook.md`: passo a passo de deploy no Railway
+- `docs/supabase_migration_plan.md`: decisao e plano inicial da migracao para Supabase
 
 ### Regra obrigatória
 Ao usar Codex/IA neste projeto, considerar como autoridade:

@@ -1020,10 +1020,21 @@ export default function CartoesPage() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? "Erro ao gerar totalizadores");
-      if (Number(payload.data.generated) === 0) {
-        setMessage("RESUMO DO MES JA PROCESSADO: ESTE LANCAMENTO JA HAVIA SIDO GRAVADO.");
+      const created = Number(payload?.data?.generated ?? 0);
+      const updated = Number(payload?.data?.updated ?? 0);
+      const deleted = Number(payload?.data?.deleted ?? 0);
+      const unchanged = Number(payload?.data?.unchanged ?? 0);
+      const processed = Number(payload?.data?.processed ?? created + updated + deleted);
+
+      if (processed === 0) {
+        setMessage("RESUMO DO MES JA PROCESSADO: NENHUMA MUDANCA NECESSARIA.");
       } else {
-        setMessage(`Resumo do mes processado: ${payload.data.generated} lançamentos criados.`);
+        const partes = [];
+        if (created > 0) partes.push(`${created} criado(s)`);
+        if (updated > 0) partes.push(`${updated} atualizado(s)`);
+        if (deleted > 0) partes.push(`${deleted} removido(s)`);
+        if (unchanged > 0) partes.push(`${unchanged} sem alteracao`);
+        setMessage(`Resumo do mes processado: ${partes.join(" | ")}.`);
       }
       await load();
     } catch (err) {

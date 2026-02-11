@@ -395,11 +395,15 @@ export default function CartoesPage() {
   const [runningImport, setRunningImport] = useState(false);
 
   const cardById = useMemo(() => new Map(cards.map((item) => [item.id, item])), [cards]);
+  const activeCards = useMemo(() => {
+    const onlyActive = cards.filter((item) => item.ativo);
+    return onlyActive.length > 0 ? onlyActive : cards;
+  }, [cards]);
   const selectedCard = useMemo(
     () => (selectedCardId ? cardById.get(selectedCardId) ?? null : null),
     [cardById, selectedCardId]
   );
-  const defaultCard = useMemo(() => cards.find((item) => item.ativo) ?? cards[0] ?? null, [cards]);
+  const defaultCard = useMemo(() => activeCards[0] ?? null, [activeCards]);
   const pending = useMemo(
     () =>
       movimentos.filter(
@@ -478,7 +482,7 @@ export default function CartoesPage() {
         cartao_id: effectiveCardId,
         atribuicao: effectiveCard?.padrao_atribuicao ?? prev.atribuicao
       }));
-      setImportCardId((prev) => prev || rows[0]?.id || "");
+      setImportCardId((prev) => prev || defaultCardRow?.id || "");
 
       const movPayload = await movRes.json();
       if (!movRes.ok) throw new Error(movPayload.message ?? "Erro ao carregar movimentos");
@@ -1089,7 +1093,7 @@ export default function CartoesPage() {
 
       {/* Card Carousel */}
       <section className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x no-scrollbar">
-        {cards.filter(c => c.ativo).map((card) => (
+        {activeCards.map((card) => (
           <article
             key={card.id}
             onClick={() => toggleCardFilter(card)}
@@ -1232,7 +1236,7 @@ export default function CartoesPage() {
                     required
                   >
                     <option value="">Selecione...</option>
-                    {cards.filter((item) => item.ativo).map((item) => (
+                    {activeCards.map((item) => (
                       <option key={item.id} value={item.id}>{item.nome}</option>
                     ))}
                   </select>
@@ -1559,7 +1563,7 @@ export default function CartoesPage() {
                   required
                 >
                   <option value="">Selecione...</option>
-                  {cards.filter((item) => item.ativo).map((item) => (
+                  {activeCards.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.nome}
                       {item.final_cartao ? ` (final ${item.final_cartao})` : ""}

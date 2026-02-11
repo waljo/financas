@@ -42,6 +42,12 @@ function asNullableNumber(value: unknown): number | null {
 }
 
 function asBoolFromInt(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "sim", "yes", "on", "ativo"].includes(normalized)) return true;
+    if (["0", "false", "nao", "não", "no", "off", "inativo"].includes(normalized)) return false;
+  }
   return asNumber(value, 0) === 1;
 }
 

@@ -25,11 +25,31 @@ App de financas pessoais com foco em lancamento rapido, relatorios, alertas e im
 
 ## 3) Scripts principais
 - `npm run dev` -> app local em `http://localhost:3000`
+- `npm run lovable:install` -> instala dependencias do front Lovable (`lovable-app`)
+- `npm run lovable:dev` -> front Lovable em `http://localhost:5173` (consome API via proxy para `:3000`)
+- `npm run lovable:build` -> build do front Lovable
 - `npm run typecheck` -> validacao TypeScript
 - `npm test` -> testes de dominio (60/40, RECEBER/PAGAR DEA)
 - `npm run alertas` -> checa vencimentos e envia email (e opcionalmente Calendar)
 - `npm run importar:cli -- --config ./import-config.example.json` -> importador CLI
 - `node scripts/importar.js --config ./import-config.example.json` -> wrapper CLI solicitado
+
+## 3.1) Front compatível com Lovable (React + Vite + TS + Tailwind)
+Foi iniciado um frontend paralelo em `lovable-app` para compatibilidade direta com o Lovable.
+
+Estado atual da migracao:
+- shell de navegacao mobile
+- Dashboard funcional consumindo `/api/dashboard`, `/api/lancamentos`, `/api/sync/*`
+- rotas placeholder para demais telas (`cartoes`, `relatorios`, `categorias`, etc.)
+
+Como rodar local em paralelo:
+1. terminal A: `npm run dev` (backend/app atual Next em `:3000`)
+2. terminal B: `npm run lovable:install` (uma vez)
+3. terminal B: `npm run lovable:dev` (frontend Lovable em `:5173`)
+
+Configuracao opcional:
+- `lovable-app/.env` com `VITE_API_BASE_URL=https://seu-backend`
+- sem `VITE_API_BASE_URL`, o Vite usa proxy local para `http://localhost:3000`
 
 ## 4) Estrutura do projeto
 - `src/lib/sheets` -> OAuth + wrapper de leitura/escrita no Sheets

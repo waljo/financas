@@ -1225,7 +1225,7 @@ export default function CartoesPage() {
       )}
 
       {/* Manual Purchase Form - Expansível */}
-      <section className="rounded-[2.5rem] bg-white p-6 shadow-sm ring-1 ring-ink/5">
+      <section className="rounded-[2.5rem] bg-white p-6 shadow-sm ring-1 ring-ink/5 overflow-x-hidden">
         <button
           type="button"
           onClick={() => setManualExpanded((prev) => !prev)}
@@ -1449,15 +1449,15 @@ export default function CartoesPage() {
 
                 <div className="grid gap-3">
                   {pendingFiltered.map((item) => (
-                    <article key={item.id} className="group rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-ink/5 transition-all active:scale-[0.98]">
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h3 className="text-lg font-black tracking-tight text-ink leading-tight">{item.descricao}</h3>
+                    <article key={item.id} className="group w-full overflow-hidden rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-ink/5 transition-all active:scale-[0.98]">
+                      <div className="mb-4 flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="line-clamp-2 text-lg font-black tracking-tight text-ink leading-tight">{item.descricao}</h3>
                           <p className="text-xs font-bold text-ink/30 mt-1 uppercase tracking-wider">
                             {item.data} • {cardById.get(item.cartao_id)?.nome ?? "Cartão"}
                           </p>
                         </div>
-                        <p className="text-xl font-black tracking-tighter text-ink">
+                        <p className="shrink-0 pl-2 text-right text-xl font-black tracking-tighter text-ink">
                           {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                         </p>
                       </div>
@@ -1497,20 +1497,20 @@ export default function CartoesPage() {
               ) : (
                 <div className="grid gap-3">
                   {lancadosFiltered.map((item) => (
-                    <article key={item.id} onClick={() => startEditMovement(item)} className="group relative flex items-center justify-between rounded-3xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md cursor-pointer active:scale-[0.99]">
-                      <div className="flex items-center gap-4">
-                        <div className="h-12 w-12 rounded-2xl bg-sand flex flex-col items-center justify-center">
+                    <article key={item.id} onClick={() => startEditMovement(item)} className="group relative flex w-full items-center justify-between overflow-hidden rounded-3xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md cursor-pointer active:scale-[0.99]">
+                      <div className="flex min-w-0 flex-1 items-center gap-4">
+                        <div className="h-12 w-12 shrink-0 rounded-2xl bg-sand flex flex-col items-center justify-center">
                           <span className="text-[10px] font-black text-ink/20 leading-none">{item.data.split('-')[2]}</span>
                           <span className="text-[8px] font-bold text-ink/20 uppercase tracking-tighter">{item.data.split('-')[1]}</span>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <h3 className="text-sm font-black tracking-tight text-ink leading-tight line-clamp-1">{item.descricao}</h3>
                           <p className="text-[10px] font-bold text-ink/30 uppercase tracking-widest mt-0.5">
                             {cardById.get(item.cartao_id)?.nome ?? "Cartão"}
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="shrink-0 pl-2 text-right">
                         <p className="text-base font-black tracking-tighter text-ink">
                           {item.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                         </p>

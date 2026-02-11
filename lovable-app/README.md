@@ -20,4 +20,5 @@ Frontend: `http://localhost:5173`
 - Navegação mobile base
 - Dashboard com consumo de API (`/api/dashboard`, `/api/lancamentos`, `/api/sync/status`, `/api/sync/run`)
 - Tela `cartoes` migrada com fluxo principal (listar, lançar, editar, excluir, filtrar, fechar mês)
+- Tela `lancar` migrada com fluxo principal (avulsa/fixa/receita + categorias)
 - Rotas placeholder para demais telas a migrar

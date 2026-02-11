@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppNav } from "./components/AppNav";
 import CartoesPage from "./pages/CartoesPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import LancarPage from "./pages/LancarPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 
 export default function App() {
@@ -12,7 +13,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/cartoes" element={<CartoesPage />} />
-          <Route path="/lancar" element={<PlaceholderPage title="Lancar" />} />
+          <Route path="/lancar" element={<LancarPage />} />
           <Route path="/categorias" element={<PlaceholderPage title="Categorias" />} />
           <Route path="/importar" element={<PlaceholderPage title="Importar" />} />
           <Route path="/contas-fixas" element={<PlaceholderPage title="Contas fixas" />} />

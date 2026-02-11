@@ -23,6 +23,13 @@ Entregue na etapa seguinte:
   - filtros (cartão ativo e descrição)
   - fechamento/totalizadores via API existente
 
+Entregue na etapa atual:
+- migração da tela de lançamento (`lovable-app/src/pages/LancarPage.tsx`)
+  - modos: despesa avulsa, despesa fixa e receita
+  - criação/edição/exclusão de receitas
+  - lançamentos de contas fixas
+  - integração com categorias via `CategoryPicker`
+
 ## Estrutura criada
 - `lovable-app/package.json`
 - `lovable-app/vite.config.ts`
@@ -48,9 +55,9 @@ Arquivo opcional:
 Sem `VITE_API_BASE_URL`, o Vite usa proxy local para `http://localhost:3000`.
 
 ## Próximas fases recomendadas
-1. Migrar `lancar`
-2. Migrar `contas-fixas`
-3. Migrar `relatorios` e `importar`
+1. Migrar `contas-fixas`
+2. Migrar `relatorios` e `importar`
+3. Migrar `categorias` e `calendario-anual`
 4. Revisar UX mobile final e estados offline/sync no frontend Lovable
 5. Remover dependência de Next no frontend após cobertura total das telas
 

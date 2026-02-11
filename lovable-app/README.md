@@ -21,4 +21,6 @@ Frontend: `http://localhost:5173`
 - Dashboard com consumo de API (`/api/dashboard`, `/api/lancamentos`, `/api/sync/status`, `/api/sync/run`)
 - Tela `cartoes` migrada com fluxo principal (listar, lançar, editar, excluir, filtrar, fechar mês)
 - Tela `lancar` migrada com fluxo principal (avulsa/fixa/receita + categorias)
+- Tela `contas-fixas` migrada com CRUD completo e totalizadores
+- Tela `categorias` migrada com CRUD e normalização
 - Rotas placeholder para demais telas a migrar

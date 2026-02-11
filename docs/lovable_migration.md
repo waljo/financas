@@ -30,6 +30,19 @@ Entregue na etapa atual:
   - lançamentos de contas fixas
   - integração com categorias via `CategoryPicker`
 
+Entregue na etapa atual+1:
+- migração da tela de contas fixas (`lovable-app/src/pages/ContasFixasPage.tsx`)
+  - CRUD completo
+  - categoria com `CategoryPicker`
+  - cartões de total geral e total WALKER
+  - comportamento/UX equivalente ao fluxo atual
+
+Entregue na etapa atual+2:
+- migração da tela de categorias (`lovable-app/src/pages/CategoriasPage.tsx`)
+  - CRUD de categorias
+  - busca/filtro por ativas
+  - preview e execução da normalização
+
 ## Estrutura criada
 - `lovable-app/package.json`
 - `lovable-app/vite.config.ts`
@@ -55,11 +68,10 @@ Arquivo opcional:
 Sem `VITE_API_BASE_URL`, o Vite usa proxy local para `http://localhost:3000`.
 
 ## Próximas fases recomendadas
-1. Migrar `contas-fixas`
-2. Migrar `relatorios` e `importar`
-3. Migrar `categorias` e `calendario-anual`
-4. Revisar UX mobile final e estados offline/sync no frontend Lovable
-5. Remover dependência de Next no frontend após cobertura total das telas
+1. Migrar `relatorios` e `importar`
+2. Migrar `calendario-anual`
+3. Revisar UX mobile final e estados offline/sync no frontend Lovable
+4. Remover dependência de Next no frontend após cobertura total das telas
 
 ## Observações
 - Nesta fase, o backend/integrações Google permanecem no app atual.

@@ -19,4 +19,5 @@ Frontend: `http://localhost:5173`
 ## Escopo da migração (inicial)
 - Navegação mobile base
 - Dashboard com consumo de API (`/api/dashboard`, `/api/lancamentos`, `/api/sync/status`, `/api/sync/run`)
+- Tela `cartoes` migrada com fluxo principal (listar, lançar, editar, excluir, filtrar, fechar mês)
 - Rotas placeholder para demais telas a migrar

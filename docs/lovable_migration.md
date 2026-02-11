@@ -14,6 +14,15 @@ Entregue nesta etapa:
   - indicador online/offline no cliente
 - placeholders de rotas para telas a migrar
 
+Entregue na etapa seguinte:
+- migração da tela de cartões para Lovable (`lovable-app/src/pages/CartoesPage.tsx`)
+  - listagem de cartões
+  - listagem de compras (pendentes + últimos gastos)
+  - lançamento manual de compra
+  - edição e exclusão de compra
+  - filtros (cartão ativo e descrição)
+  - fechamento/totalizadores via API existente
+
 ## Estrutura criada
 - `lovable-app/package.json`
 - `lovable-app/vite.config.ts`
@@ -39,10 +48,10 @@ Arquivo opcional:
 Sem `VITE_API_BASE_URL`, o Vite usa proxy local para `http://localhost:3000`.
 
 ## Próximas fases recomendadas
-1. Migrar `cartoes` (listagem + lançamento + edição + exclusão + filtros)
-2. Migrar `lancar`
-3. Migrar `contas-fixas`
-4. Migrar `relatorios` e `importar`
+1. Migrar `lancar`
+2. Migrar `contas-fixas`
+3. Migrar `relatorios` e `importar`
+4. Revisar UX mobile final e estados offline/sync no frontend Lovable
 5. Remover dependência de Next no frontend após cobertura total das telas
 
 ## Observações

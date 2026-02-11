@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppNav } from "./components/AppNav";
-import { CartoesPage } from "./pages/CartoesPage";
+import CartoesPage from "./pages/CartoesPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 

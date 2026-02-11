@@ -23,4 +23,6 @@ Frontend: `http://localhost:5173`
 - Tela `lancar` migrada com fluxo principal (avulsa/fixa/receita + categorias)
 - Tela `contas-fixas` migrada com CRUD completo e totalizadores
 - Tela `categorias` migrada com CRUD e normalização
-- Rotas placeholder para demais telas a migrar
+- Tela `relatorios` migrada com detalhamento de parcelas
+- Tela `importar` migrada com fluxo guiado completo (metadata, preview, importação)
+- Pendente principal: `calendario-anual`

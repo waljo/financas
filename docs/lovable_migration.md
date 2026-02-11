@@ -43,6 +43,20 @@ Entregue na etapa atual+2:
   - busca/filtro por ativas
   - preview e execução da normalização
 
+Entregue na etapa atual+3:
+- migração da tela de relatórios (`lovable-app/src/pages/RelatoriosPage.tsx`)
+  - geração de relatório mensal
+  - saldo/receitas/despesas
+  - detalhamento por categoria e atribuição
+  - modal de parcelas com detalhamento por compra
+
+Entregue na etapa atual+4:
+- migração da tela de importação (`lovable-app/src/pages/ImportarPage.tsx`)
+  - carregamento de metadata
+  - seleção de meses e mapeamento
+  - preview por mês
+  - execução de importação
+
 ## Estrutura criada
 - `lovable-app/package.json`
 - `lovable-app/vite.config.ts`
@@ -68,10 +82,9 @@ Arquivo opcional:
 Sem `VITE_API_BASE_URL`, o Vite usa proxy local para `http://localhost:3000`.
 
 ## Próximas fases recomendadas
-1. Migrar `relatorios` e `importar`
-2. Migrar `calendario-anual`
-3. Revisar UX mobile final e estados offline/sync no frontend Lovable
-4. Remover dependência de Next no frontend após cobertura total das telas
+1. Migrar `calendario-anual` (última tela principal ainda fora do Lovable)
+2. Revisar UX mobile final e estados offline/sync no frontend Lovable
+3. Remover dependência de Next no frontend após cobertura total das telas
 
 ## Observações
 - Nesta fase, o backend/integrações Google permanecem no app atual.

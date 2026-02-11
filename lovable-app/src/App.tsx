@@ -4,8 +4,9 @@ import CategoriasPage from "./pages/CategoriasPage";
 import CartoesPage from "./pages/CartoesPage";
 import ContasFixasPage from "./pages/ContasFixasPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import ImportarPage from "./pages/ImportarPage";
 import LancarPage from "./pages/LancarPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
+import RelatoriosPage from "./pages/RelatoriosPage";
 
 export default function App() {
   return (
@@ -17,9 +18,9 @@ export default function App() {
           <Route path="/cartoes" element={<CartoesPage />} />
           <Route path="/lancar" element={<LancarPage />} />
           <Route path="/categorias" element={<CategoriasPage />} />
-          <Route path="/importar" element={<PlaceholderPage title="Importar" />} />
+          <Route path="/importar" element={<ImportarPage />} />
           <Route path="/contas-fixas" element={<ContasFixasPage />} />
-          <Route path="/relatorios" element={<PlaceholderPage title="Relatorios" />} />
+          <Route path="/relatorios" element={<RelatoriosPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

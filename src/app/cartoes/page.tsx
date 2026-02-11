@@ -34,6 +34,14 @@ function parseMoney(value: string) {
   return Number(text);
 }
 
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+}
+
 function toIsoDate(value: string): string | null {
   const text = value.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
@@ -357,6 +365,7 @@ export default function CartoesPage() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [manualExpanded, setManualExpanded] = useState(false);
   const [expensesExpanded, setExpensesExpanded] = useState(false);
+  const [descriptionFilter, setDescriptionFilter] = useState("");
 
   const [moveForm, setMoveForm] = useState({
     cartao_id: "",
@@ -414,16 +423,27 @@ export default function CartoesPage() {
       ),
     [movimentos, selectedCardId]
   );
+  const normalizedDescriptionFilter = useMemo(
+    () => normalizeSearchText(descriptionFilter),
+    [descriptionFilter]
+  );
+  const pendingFiltered = useMemo(() => {
+    if (!normalizedDescriptionFilter) return pending;
+    return pending.filter((item) =>
+      normalizeSearchText(item.descricao).includes(normalizedDescriptionFilter)
+    );
+  }, [pending, normalizedDescriptionFilter]);
+  const lancadosFiltered = useMemo(() => {
+    if (!normalizedDescriptionFilter) return lancados;
+    return lancados.filter((item) =>
+      normalizeSearchText(item.descricao).includes(normalizedDescriptionFilter)
+    );
+  }, [lancados, normalizedDescriptionFilter]);
   const totalTodosCartoes = useMemo(
     () => lancados.reduce((sum, item) => sum + item.valor, 0),
     [lancados]
   );
-  const despesasCountAll = useMemo(
-    () => movimentos.filter((item) => item.status === "pendente" || item.status === "conciliado").length,
-    [movimentos]
-  );
-  const despesasCountFiltered = pending.length + lancados.length;
-  const despesasCountDisplay = selectedCardId ? despesasCountFiltered : despesasCountAll;
+  const despesasCountDisplay = pendingFiltered.length + lancadosFiltered.length;
   const totalizadoresView: Totalizadores = totalizadores ?? {
     mes: month,
     banco: bank,
@@ -929,17 +949,17 @@ export default function CartoesPage() {
   }
 
   async function classifyPendingByDefault() {
-    if (!pending.length) return;
+    if (!pendingFiltered.length) return;
     setClassifyingBulk(true);
     setError("");
     setMessage("");
     try {
-      for (const movimento of pending) {
+      for (const movimento of pendingFiltered) {
         const card = cardById.get(movimento.cartao_id);
         const atribuicao = card?.padrao_atribuicao ?? "AMBOS";
         await updateMovementClassification(movimento, [{ atribuicao, valor: movimento.valor }]);
       }
-      setMessage(`${pending.length} pendencia(s) classificada(s) com atribuicao default do cartao.`);
+      setMessage(`${pendingFiltered.length} pendencia(s) classificada(s) com atribuicao default do cartao.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro na classificacao em lote");
@@ -1402,10 +1422,22 @@ export default function CartoesPage() {
 
         {expensesExpanded && (
           <div className="mt-6 border-t border-ink/10 pt-6 space-y-8">
-            {pending.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-ink/40 ml-1">
+                Buscar por descrição
+              </label>
+              <input
+                className="h-12 w-full rounded-xl bg-sand/40 px-4 text-sm font-bold ring-1 ring-ink/10 focus:ring-2 focus:ring-pine outline-none transition-all"
+                placeholder="Ex.: padaria, farmácia, mercado..."
+                value={descriptionFilter}
+                onChange={(event) => setDescriptionFilter(event.target.value)}
+              />
+            </div>
+
+            {pendingFiltered.length > 0 && (
               <section className="space-y-4">
                 <header className="flex items-center justify-between px-1">
-                  <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Pendentes de Classificação ({pending.length})</h2>
+                  <h2 className="text-xs font-bold uppercase tracking-widest text-ink/40">Pendentes de Classificação ({pendingFiltered.length})</h2>
                   <button
                     onClick={classifyPendingByDefault}
                     disabled={classifyingBulk}
@@ -1416,7 +1448,7 @@ export default function CartoesPage() {
                 </header>
 
                 <div className="grid gap-3">
-                  {pending.map((item) => (
+                  {pendingFiltered.map((item) => (
                     <article key={item.id} className="group rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-ink/5 transition-all active:scale-[0.98]">
                       <div className="flex justify-between items-start mb-4">
                         <div>
@@ -1456,13 +1488,15 @@ export default function CartoesPage() {
                 <div className="h-px flex-1 bg-ink/5 mx-4" />
               </div>
 
-              {lancados.length === 0 ? (
+              {lancadosFiltered.length === 0 ? (
                 <div className="py-12 text-center rounded-[2rem] bg-sand/30 border border-dashed border-ink/10">
-                  <p className="text-xs font-bold uppercase tracking-widest text-ink/20">Sem gastos neste mês</p>
+                  <p className="text-xs font-bold uppercase tracking-widest text-ink/20">
+                    {normalizedDescriptionFilter ? "Nenhum gasto encontrado para o filtro" : "Sem gastos neste mês"}
+                  </p>
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  {lancados.map((item) => (
+                  {lancadosFiltered.map((item) => (
                     <article key={item.id} onClick={() => startEditMovement(item)} className="group relative flex items-center justify-between rounded-3xl bg-white p-5 shadow-sm ring-1 ring-ink/5 transition-all hover:shadow-md cursor-pointer active:scale-[0.99]">
                       <div className="flex items-center gap-4">
                         <div className="h-12 w-12 rounded-2xl bg-sand flex flex-col items-center justify-center">

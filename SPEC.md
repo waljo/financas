@@ -144,3 +144,10 @@ A escolha dos modos segue as regras definidas em `prompts/router.md`.
 - O uso de IA não substitui revisão humana
 - A IA não recomenda produtos financeiros
 - A IA não assume responsabilidade técnica ou legal
+
+## Addendum - Mobile Offline Sync (2026-02-12)
+- Feature flag `MOBILE_OFFLINE_MODE` controla a nova versao mobile offline sem alterar o fluxo padrao.
+- PWA adicionada com manifest, icones e service worker para instalacao no Android.
+- Cadastro offline em `/lancar` salva em IndexedDB (`lancamentos_local`) com `id` UUID e status `synced`.
+- Sincronizacao sob demanda em `/sync` (push em lote para Apps Script Web App) via botao `Sincronizar agora`.
+- Dedupe por `id` no lote enviado e no destino (Apps Script), sem pull inicial do legado para evitar conflitos.

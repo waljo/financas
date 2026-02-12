@@ -3,6 +3,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ContaFixa, Lancamento } from "@/lib/types";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
+import type { LocalLancamentoRecord } from "@/lib/mobileOffline/db";
+import { enqueueLancamentoLocal, readLancamentosLocaisByMonth } from "@/lib/mobileOffline/queue";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -52,6 +55,49 @@ function parseMoneyInput(value: string) {
   return Number(value.replace(",", ".").trim());
 }
 
+const CONTAS_FIXAS_CACHE_KEY = "mobile_offline_contas_fixas_cache";
+
+function readCachedContasFixas(): ContaFixa[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CONTAS_FIXAS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as ContaFixa[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedContasFixas(contas: ContaFixa[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CONTAS_FIXAS_CACHE_KEY, JSON.stringify(contas));
+  } catch {
+    // Ignora falhas de cache local.
+  }
+}
+
+function mergeLancamentosById(remote: Lancamento[], localRecords: LocalLancamentoRecord[]) {
+  const output = new Map<string, Lancamento>();
+
+  for (const record of remote) {
+    output.set(record.id, record);
+  }
+
+  for (const record of localRecords) {
+    output.set(record.id, {
+      ...record.payload,
+      id: record.id,
+      created_at: record.payload.created_at ?? record.created_at,
+      updated_at: record.payload.updated_at ?? record.updated_at
+    });
+  }
+
+  return [...output.values()];
+}
+
 const atribuicoes = ["WALKER", "DEA", "AMBOS", "AMBOS_I"];
 const metodos = ["pix", "cartao", "dinheiro", "transferencia", "outro"];
 
@@ -92,6 +138,7 @@ const fixedStatusClass: Record<FixedStatus["tone"], string> = {
 };
 
 export default function LancarPage() {
+  const { mobileOfflineMode } = useFeatureFlags();
   const [today] = useState(() => todayIso());
   const currentMonth = useMemo(() => today.slice(0, 7), [today]);
   const [receitasMonth, setReceitasMonth] = useState(currentMonth);
@@ -139,6 +186,7 @@ export default function LancarPage() {
     setLoadingData(true);
     setError("");
     try {
+      const localRecords = mobileOfflineMode ? await readLancamentosLocaisByMonth(currentMonth) : [];
       const [contasResponse, lancamentosResponse] = await Promise.all([
         fetch("/api/contas-fixas"),
         fetch(`/api/lancamentos?mes=${currentMonth}`)
@@ -155,8 +203,16 @@ export default function LancarPage() {
       }
 
       const activeContas = ((contasPayload.data ?? []) as ContaFixa[]).filter((item) => item.ativo);
+      const remoteLancamentos = (lancamentosPayload.data ?? []) as Lancamento[];
+      const mergedLancamentos = mobileOfflineMode
+        ? mergeLancamentosById(remoteLancamentos, localRecords)
+        : remoteLancamentos;
+
       setContasFixas(activeContas);
-      setLancamentosMes((lancamentosPayload.data ?? []) as Lancamento[]);
+      if (mobileOfflineMode) {
+        writeCachedContasFixas(activeContas);
+      }
+      setLancamentosMes(mergedLancamentos);
 
       setFixedValues((prev) => {
         const next: Record<string, string> = {};
@@ -166,11 +222,35 @@ export default function LancarPage() {
         return next;
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao carregar dados da tela");
+      let usedLocalFallback = false;
+      if (mobileOfflineMode) {
+        try {
+          const cachedContas = readCachedContasFixas();
+          if (cachedContas.length > 0) {
+            setContasFixas(cachedContas.filter((item) => item.ativo));
+          }
+
+          const localOnly = await readLancamentosLocaisByMonth(currentMonth);
+          setLancamentosMes(
+            localOnly.map((record) => ({
+              ...record.payload,
+              id: record.id,
+              created_at: record.payload.created_at ?? record.created_at,
+              updated_at: record.payload.updated_at ?? record.updated_at
+            }))
+          );
+          usedLocalFallback = localOnly.length > 0 || cachedContas.length > 0;
+        } catch {
+          // Sem fallback adicional.
+        }
+      }
+      if (!usedLocalFallback) {
+        setError(err instanceof Error ? err.message : "Erro ao carregar dados da tela");
+      }
     } finally {
       setLoadingData(false);
     }
-  }, [currentMonth]);
+  }, [currentMonth, mobileOfflineMode]);
 
   useEffect(() => {
     loadData();
@@ -180,22 +260,49 @@ export default function LancarPage() {
     setLoadingReceitas(true);
     setError("");
     try {
+      const localRecords = mobileOfflineMode ? await readLancamentosLocaisByMonth(month) : [];
       const response = await fetch(`/api/lancamentos?mes=${month}`);
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.message ?? "Erro ao carregar receitas");
       }
 
-      const receitas = ((payload.data ?? []) as Lancamento[])
+      const remoteLancamentos = (payload.data ?? []) as Lancamento[];
+      const mergedLancamentos = mobileOfflineMode
+        ? mergeLancamentosById(remoteLancamentos, localRecords)
+        : remoteLancamentos;
+
+      const receitas = mergedLancamentos
         .filter((item) => item.tipo === "receita")
         .sort((a, b) => b.data.localeCompare(a.data));
       setReceitasMes(receitas);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao carregar receitas");
+      let usedLocalFallback = false;
+      if (mobileOfflineMode) {
+        try {
+          const localOnly = await readLancamentosLocaisByMonth(month);
+          const receitas = localOnly
+            .map((record) => ({
+              ...record.payload,
+              id: record.id,
+              created_at: record.payload.created_at ?? record.created_at,
+              updated_at: record.payload.updated_at ?? record.updated_at
+            }))
+            .filter((item) => item.tipo === "receita")
+            .sort((a, b) => b.data.localeCompare(a.data));
+          setReceitasMes(receitas);
+          usedLocalFallback = true;
+        } catch {
+          // Sem fallback adicional.
+        }
+      }
+      if (!usedLocalFallback) {
+        setError(err instanceof Error ? err.message : "Erro ao carregar receitas");
+      }
     } finally {
       setLoadingReceitas(false);
     }
-  }, []);
+  }, [mobileOfflineMode]);
 
   useEffect(() => {
     if (mode !== "receita") return;
@@ -309,6 +416,11 @@ function handleReceitasMonthChange(nextMonth: string) {
   }
 
   async function saveReceitaEdit(id: string) {
+    if (mobileOfflineMode) {
+      setError("Edicao de receita nao suportada no modo offline mobile. Sincronize e edite no modo online.");
+      return;
+    }
+
     const receitaAtual = receitasMes.find((item) => item.id === id);
     if (!receitaAtual) {
       setError("Receita não encontrada para edição.");
@@ -362,6 +474,11 @@ function handleReceitasMonthChange(nextMonth: string) {
   }
 
   async function deleteReceita(id: string) {
+    if (mobileOfflineMode) {
+      setError("Exclusao de receita nao suportada no modo offline mobile. Sincronize e remova no modo online.");
+      return;
+    }
+
     const confirmed = confirm("Excluir esta receita?");
     if (!confirmed) return;
 
@@ -410,7 +527,7 @@ function handleReceitasMonthChange(nextMonth: string) {
     setSavingFixedKey(saveKey);
 
     try {
-      const payload = {
+      const payload: Omit<Lancamento, "id" | "created_at" | "updated_at"> = {
         data: targetDate,
         tipo: "despesa",
         descricao: conta.nome,
@@ -424,18 +541,26 @@ function handleReceitasMonthChange(nextMonth: string) {
         quem_pagou: conta.quem_pagou || "WALKER"
       };
 
-      const response = await fetch("/api/lancamentos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      if (mobileOfflineMode) {
+        await enqueueLancamentoLocal(payload);
+      } else {
+        const response = await fetch("/api/lancamentos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.message ?? "Erro ao lançar conta fixa");
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.message ?? "Erro ao lançar conta fixa");
+        }
       }
 
-      setMessage(`"${conta.nome}" salva com sucesso.`);
+      setMessage(
+        mobileOfflineMode
+          ? `"${conta.nome}" salva localmente. Abra Sync para sincronizar.`
+          : `"${conta.nome}" salva com sucesso.`
+      );
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao lançar conta fixa");
@@ -470,18 +595,26 @@ function handleReceitasMonthChange(nextMonth: string) {
         parcela_numero: tipo === "despesa" && form.parcela_numero ? Number(form.parcela_numero) : null
       };
 
-      const response = await fetch("/api/lancamentos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      if (mobileOfflineMode) {
+        await enqueueLancamentoLocal(payload);
+      } else {
+        const response = await fetch("/api/lancamentos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.message ?? "Erro ao salvar lançamento");
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.message ?? "Erro ao salvar lançamento");
+        }
       }
 
-      setMessage("Lançamento salvo com sucesso.");
+      setMessage(
+        mobileOfflineMode
+          ? "Lançamento salvo localmente. Use Sync para enviar ao Google Sheets."
+          : "Lançamento salvo com sucesso."
+      );
       setForm(
         mode === "receita"
           ? {
@@ -507,6 +640,11 @@ function handleReceitasMonthChange(nextMonth: string) {
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-ink">Novo lançamento</h1>
         <p className="text-sm font-medium text-ink/50">Como você quer registrar hoje?</p>
+        {mobileOfflineMode ? (
+          <p className="mt-2 inline-flex rounded-full bg-ink/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink/70">
+            Mobile offline ativo: salva local e sincroniza sob demanda
+          </p>
+        ) : null}
       </header>
 
       {/* Mode Selector - Premium Cards */}

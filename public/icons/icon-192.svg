@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-label="FinançasG">
+  <rect width="192" height="192" rx="32" fill="#0f172a" />
+  <rect x="28" y="28" width="136" height="136" rx="24" fill="#14b8a6" opacity="0.16" />
+  <path d="M44 120h22l13-42 17 56 12-35h40" fill="none" stroke="#f8fafc" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="142" cy="58" r="14" fill="#34d399" />
+</svg>

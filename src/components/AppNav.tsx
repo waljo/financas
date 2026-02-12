@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
 
 const primaryLinks = [
   { href: "/", label: "Início", icon: (active: boolean) => (
@@ -17,7 +18,7 @@ const primaryLinks = [
   )}
 ];
 
-const moreLinks = [
+const baseMoreLinks = [
   { href: "/relatorios", label: "Relatórios" },
   { href: "/categorias", label: "Categorias" },
   { href: "/importar", label: "Importar" },
@@ -25,12 +26,16 @@ const moreLinks = [
 ];
 
 export function AppNav() {
+  const { mobileOfflineMode } = useFeatureFlags();
   const pathname = usePathname();
   const router = useRouter();
   const launchActive = pathname === "/lancar";
   const [moreOpen, setMoreOpen] = useState(false);
   const [repairLoading, setRepairLoading] = useState(false);
   const [repairNotice, setRepairNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const moreLinks = mobileOfflineMode
+    ? [...baseMoreLinks, { href: "/sync", label: "Sync" }, { href: "/offline", label: "Offline" }]
+    : baseMoreLinks;
   const moreRouteActive = moreLinks.some((item) => item.href === pathname);
 
   useEffect(() => {

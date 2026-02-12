@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "mobile:lan": "tsx scripts/mobile-lan.ts",
+    "mobile:lan:https": "tsx scripts/mobile-lan-https.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -13,6 +15,7 @@
     "alertas": "tsx scripts/alertas.ts",
     "importar:cli": "tsx scripts/importar.ts",
     "bootstrap:sheets": "tsx scripts/bootstrap-sheets.ts",
+    "sync": "tsx scripts/sync.ts",
     "limpar:duplicatas": "tsx scripts/limpar-duplicatas.ts",
     "reimportar:tudo": "tsx scripts/reimportar-tudo.ts",
     "backfill:legado": "tsx scripts/backfill-legado-status.ts",

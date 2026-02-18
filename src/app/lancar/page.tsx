@@ -5,7 +5,13 @@ import type { ContaFixa, Lancamento } from "@/lib/types";
 import { CategoryPicker } from "@/components/CategoryPicker";
 import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
 import type { LocalLancamentoRecord } from "@/lib/mobileOffline/db";
-import { enqueueLancamentoLocal, readLancamentosLocaisByMonth } from "@/lib/mobileOffline/queue";
+import {
+  enqueueLancamentoLocal,
+  queueLancamentoDeleteLocal,
+  queueLancamentoUpdateLocal,
+  readLancamentosLocaisByMonth
+} from "@/lib/mobileOffline/queue";
+import { MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY } from "@/lib/mobileOffline/storageKeys";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -55,12 +61,10 @@ function parseMoneyInput(value: string) {
   return Number(value.replace(",", ".").trim());
 }
 
-const CONTAS_FIXAS_CACHE_KEY = "mobile_offline_contas_fixas_cache";
-
 function readCachedContasFixas(): ContaFixa[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(CONTAS_FIXAS_CACHE_KEY);
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -73,7 +77,7 @@ function readCachedContasFixas(): ContaFixa[] {
 function writeCachedContasFixas(contas: ContaFixa[]) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(CONTAS_FIXAS_CACHE_KEY, JSON.stringify(contas));
+    window.localStorage.setItem(MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY, JSON.stringify(contas));
   } catch {
     // Ignora falhas de cache local.
   }
@@ -416,11 +420,6 @@ function handleReceitasMonthChange(nextMonth: string) {
   }
 
   async function saveReceitaEdit(id: string) {
-    if (mobileOfflineMode) {
-      setError("Edicao de receita nao suportada no modo offline mobile. Sincronize e edite no modo online.");
-      return;
-    }
-
     const receitaAtual = receitasMes.find((item) => item.id === id);
     if (!receitaAtual) {
       setError("Receita não encontrada para edição.");
@@ -453,6 +452,19 @@ function handleReceitasMonthChange(nextMonth: string) {
         quem_pagou: "WALKER" as const
       };
 
+      if (mobileOfflineMode) {
+        await queueLancamentoUpdateLocal({
+          ...receitaAtual,
+          ...payload,
+          created_at: receitaAtual.created_at,
+          updated_at: new Date().toISOString()
+        });
+        setMessage("Receita atualizada localmente. Use Sync para enviar.");
+        setEditingReceitaId(null);
+        await Promise.all([loadReceitas(receitasMonth), loadData()]);
+        return;
+      }
+
       const response = await fetch("/api/lancamentos", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -474,11 +486,6 @@ function handleReceitasMonthChange(nextMonth: string) {
   }
 
   async function deleteReceita(id: string) {
-    if (mobileOfflineMode) {
-      setError("Exclusao de receita nao suportada no modo offline mobile. Sincronize e remova no modo online.");
-      return;
-    }
-
     const confirmed = confirm("Excluir esta receita?");
     if (!confirmed) return;
 
@@ -487,6 +494,16 @@ function handleReceitasMonthChange(nextMonth: string) {
     setSavingReceitaId(id);
 
     try {
+      if (mobileOfflineMode) {
+        await queueLancamentoDeleteLocal(id);
+        setMessage("Receita removida localmente. Use Sync para enviar.");
+        if (editingReceitaId === id) {
+          setEditingReceitaId(null);
+        }
+        await Promise.all([loadReceitas(receitasMonth), loadData()]);
+        return;
+      }
+
       const response = await fetch(`/api/lancamentos?id=${id}`, { method: "DELETE" });
       const result = await response.json();
       if (!response.ok) {

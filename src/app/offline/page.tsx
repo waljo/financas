@@ -4,7 +4,7 @@ export default function OfflinePage() {
       <header className="space-y-2">
         <h1 className="text-2xl font-bold tracking-tight text-ink">Modo offline</h1>
         <p className="text-sm font-medium text-ink/60">
-          Sem internet agora. Você ainda pode abrir <strong>/lancar</strong> para cadastrar e <strong>/sync</strong> para revisar pendências.
+          Sem internet agora. Você ainda pode usar <strong>/lancar</strong>, <strong>/contas-fixas</strong>, <strong>/calendario-anual</strong>, <strong>/categorias</strong> e <strong>/relatorios</strong>; depois acesse <strong>/sync</strong> para enviar pendências.
         </p>
       </header>
 

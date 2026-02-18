@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
 import { readSyncDashboard, syncLancamentosNow } from "@/lib/mobileOffline/queue";
-import type { LocalLancamentoRecord, SyncStateRecord } from "@/lib/mobileOffline/db";
+import type { LocalLancamentoRecord, SyncOpRecord, SyncStateRecord } from "@/lib/mobileOffline/db";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -22,6 +22,13 @@ function formatDateTime(value: string | null) {
 export default function SyncPage() {
   const { mobileOfflineMode } = useFeatureFlags();
   const [pendingRecords, setPendingRecords] = useState<LocalLancamentoRecord[]>([]);
+  const [pendingOps, setPendingOps] = useState<SyncOpRecord[]>([]);
+  const [pendingContaFixaOps, setPendingContaFixaOps] = useState(0);
+  const [pendingCalendarioAnualOps, setPendingCalendarioAnualOps] = useState(0);
+  const [pendingCategoriaOps, setPendingCategoriaOps] = useState(0);
+  const [pendingCartaoOps, setPendingCartaoOps] = useState(0);
+  const [pendingCartaoMovimentoOps, setPendingCartaoMovimentoOps] = useState(0);
+  const [pendingTotal, setPendingTotal] = useState(0);
   const [syncState, setSyncState] = useState<SyncStateRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -40,6 +47,13 @@ export default function SyncPage() {
     try {
       const snapshot = await readSyncDashboard();
       setPendingRecords(snapshot.pendingRecords.sort((a, b) => b.updated_at.localeCompare(a.updated_at)));
+      setPendingOps(snapshot.pendingOps.sort((a, b) => b.updated_at.localeCompare(a.updated_at)));
+      setPendingContaFixaOps(snapshot.pendingContaFixaOps);
+      setPendingCalendarioAnualOps(snapshot.pendingCalendarioAnualOps);
+      setPendingCategoriaOps(snapshot.pendingCategoriaOps);
+      setPendingCartaoOps(snapshot.pendingCartaoOps);
+      setPendingCartaoMovimentoOps(snapshot.pendingCartaoMovimentoOps);
+      setPendingTotal(snapshot.pendingCount);
       setSyncState(snapshot.syncState);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Erro ao carregar status de sincronizacao");
@@ -52,7 +66,8 @@ export default function SyncPage() {
     void loadDashboard();
   }, [loadDashboard]);
 
-  const pendingCount = pendingRecords.length;
+  const pendingLancamentosCount = pendingRecords.length;
+  const pendingCount = pendingTotal;
   const isOnline = typeof navigator === "undefined" ? true : navigator.onLine;
   const serviceWorkerAvailable =
     typeof navigator === "undefined" ? true : "serviceWorker" in navigator;
@@ -81,7 +96,7 @@ export default function SyncPage() {
       if (result.syncedCount === 0) {
         setMessage("Sem pendências para sincronizar.");
       } else {
-        setMessage(`${result.syncedCount} lançamento(s) sincronizado(s) com sucesso.`);
+        setMessage(`${result.syncedCount} operação(ões) sincronizada(s) com sucesso.`);
       }
       await loadDashboard();
     } catch (syncError) {
@@ -121,8 +136,11 @@ export default function SyncPage() {
         </article>
 
         <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/10">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-ink/45">Pendentes</p>
+          <p className="text-[11px] font-bold uppercase tracking-widest text-ink/45">Pendentes totais</p>
           <p className="mt-2 text-2xl font-black tracking-tight text-ink">{pendingCount}</p>
+          <p className="mt-1 text-xs text-ink/55">
+            Lancamentos: {pendingLancamentosCount} | Operacoes: {pendingOps.length} | Contas fixas: {pendingContaFixaOps} | Calendario: {pendingCalendarioAnualOps} | Categorias: {pendingCategoriaOps} | Cartoes: {pendingCartaoOps} | Mov. cartao: {pendingCartaoMovimentoOps}
+          </p>
         </article>
       </div>
 
@@ -185,6 +203,24 @@ export default function SyncPage() {
             ))}
           </ul>
         ) : null}
+      </section>
+
+      <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-ink/10">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-ink/50">Operacoes pendentes</h2>
+        {pendingOps.length === 0 ? (
+          <p className="text-sm text-ink/60">Sem operacoes pendentes.</p>
+        ) : (
+          <ul className="space-y-2">
+            {pendingOps.map((op) => (
+              <li key={op.op_id} className="rounded-xl bg-sand/40 p-3 ring-1 ring-ink/10">
+                <p className="text-xs font-bold text-ink/80">
+                  {op.entity} • {op.action} • {op.entity_id}
+                </p>
+                <p className="text-[10px] text-ink/45">Atualizado em: {formatDateTime(op.updated_at)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </section>
   );

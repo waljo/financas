@@ -270,6 +270,7 @@ export async function saveCartao(input: {
   final_cartao?: string;
   padrao_atribuicao: Atribuicao;
   ativo: boolean;
+  allowCreateWithProvidedId?: boolean;
 }): Promise<CartaoCredito> {
   ensureSchemaSync();
   const conn = getDb();
@@ -280,7 +281,7 @@ export async function saveCartao(input: {
     | Record<string, unknown>
     | undefined;
 
-  if (input.id && !existing) {
+  if (input.id && !existing && !input.allowCreateWithProvidedId) {
     throw new AppError(`Cartao ${input.id} nao encontrado`, 404, "ROW_NOT_FOUND");
   }
 
@@ -359,6 +360,7 @@ export async function saveCartaoMovimento(input: {
   observacao?: string;
   mes_ref?: string;
   alocacoes: Array<{ id?: string; atribuicao: Atribuicao; valor: number }>;
+  allowCreateWithProvidedId?: boolean;
 }): Promise<CartaoMovimentoComAlocacoes> {
   ensureSchemaSync();
   const conn = getDb();
@@ -387,7 +389,7 @@ export async function saveCartaoMovimento(input: {
     .prepare("SELECT created_at, mes_ref, tx_key, cartao_id FROM cartao_movimentos WHERE id = ?")
     .get(movementId) as Record<string, unknown> | undefined;
 
-  if (input.id && !current) {
+  if (input.id && !current && !input.allowCreateWithProvidedId) {
     throw new AppError(`Movimento ${movementId} nao encontrado`, 404, "ROW_NOT_FOUND");
   }
 

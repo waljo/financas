@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "FinancasG Native",
+    "slug": "financasg-native",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.devot.financasg"
+    },
+    "plugins": [
+      "expo-sqlite"
+    ]
+  }
+}

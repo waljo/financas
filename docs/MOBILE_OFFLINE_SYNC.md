@@ -48,6 +48,14 @@ Entregar uma variante mobile instalavel (PWA) que funcione offline para cadastro
   - sem Apps Script configurado, `/api/sync/push` faz insercao direta em `LANCAMENTOS` com dedupe por `id`.
   - `/api/sync/health` valida disponibilidade do Web App.
 
+### 4.1) Bootstrap para cliente nativo
+- Arquivo:
+  - `src/app/api/mobile/bootstrap/route.ts`
+- Endpoint:
+  - `GET /api/mobile/bootstrap`
+- Retorno:
+  - snapshot completo para hidratar banco local nativo (`lancamentos`, `contas_fixas`, `calendario_anual`, `receitas_regras`, `categorias`, `cartoes`, `cartao_movimentos`)
+
 ### 5) UI
 - `src/app/lancar/page.tsx`
   - quando flag ativa, `POST` direto vira enqueue local.

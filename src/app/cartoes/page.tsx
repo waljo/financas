@@ -1,6 +1,16 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
+import {
+  queueCartaoMovimentoDeleteLocal,
+  queueCartaoMovimentoUpsertLocal,
+  queueCartaoUpsertLocal
+} from "@/lib/mobileOffline/queue";
+import {
+  MOBILE_OFFLINE_CARTOES_CACHE_KEY,
+  MOBILE_OFFLINE_CARTAO_MOVIMENTOS_CACHE_KEY
+} from "@/lib/mobileOffline/storageKeys";
 import type {
   Atribuicao,
   BancoCartao,
@@ -318,6 +328,12 @@ type ImportPreview = {
   >;
 };
 
+type ImportPreviewItem = ImportLine & {
+  tx_key: string;
+  status: "ja_lancado" | "novo";
+  movimentoId?: string;
+};
+
 type Totalizadores = {
   mes: string;
   banco: BancoCartao;
@@ -334,13 +350,366 @@ type Totalizadores = {
 
 const bancos: BancoCartao[] = ["C6", "BB", "OUTRO"];
 const atribuicoes: Atribuicao[] = ["WALKER", "AMBOS", "DEA", "AMBOS_I"];
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function ensureUuid(value?: string) {
+  if (value && UUID_PATTERN.test(value)) return value;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function readCachedCards(): CartaoCredito[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CARTOES_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as CartaoCredito[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedCards(items: CartaoCredito[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_CARTOES_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
+function readCachedMovimentos(): CartaoMovimentoComAlocacoes[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CARTAO_MOVIMENTOS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as CartaoMovimentoComAlocacoes[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedMovimentos(items: CartaoMovimentoComAlocacoes[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_CARTAO_MOVIMENTOS_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
+function normalizeTxDescricao(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeCardFinal(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const digits = trimmed.replace(/\D/g, "");
+  return digits || trimmed.toUpperCase();
+}
+
+function filterLinesByCardFinalLocal(lines: ImportLine[], cardFinal: string): { lines: ImportLine[]; ignored: number } {
+  const target = normalizeCardFinal(cardFinal);
+  if (!target) return { lines, ignored: 0 };
+  const filtered = lines.filter((line) => {
+    const lineFinal = normalizeCardFinal(line.final_cartao ?? "");
+    if (!lineFinal) return true;
+    return lineFinal === target;
+  });
+  return { lines: filtered, ignored: lines.length - filtered.length };
+}
+
+function normalizeForLooseMatch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function descriptionsCompatible(left: string, right: string): boolean {
+  const a = normalizeForLooseMatch(left);
+  const b = normalizeForLooseMatch(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length >= 4 && b.includes(a)) return true;
+  if (b.length >= 4 && a.includes(b)) return true;
+
+  const tokensA = a.split(" ").filter((item) => item.length >= 3);
+  const tokensB = new Set(b.split(" ").filter((item) => item.length >= 3));
+  let overlap = 0;
+  for (const token of tokensA) {
+    if (tokensB.has(token)) overlap += 1;
+    if (overlap >= 2) return true;
+  }
+  return false;
+}
+
+function findLooseImportMatch(params: {
+  line: ImportLine;
+  existing: CartaoMovimentoComAlocacoes[];
+  matchedIds: Set<string>;
+}): CartaoMovimentoComAlocacoes | null {
+  const candidates = params.existing.filter((movimento) => {
+    if (params.matchedIds.has(movimento.id)) return false;
+    if (movimento.data !== params.line.data) return false;
+    if (Math.abs(movimento.valor - params.line.valor) > 0.01) return false;
+    return descriptionsCompatible(params.line.descricao, movimento.descricao);
+  });
+  if (candidates.length === 1) return candidates[0];
+  return null;
+}
+
+function reconcileImportLinesLocal(params: {
+  cartao: CartaoCredito;
+  lines: ImportLine[];
+  existing: CartaoMovimentoComAlocacoes[];
+}): {
+  preview: ImportPreviewItem[];
+  total: number;
+  novos: number;
+  conciliados: number;
+} {
+  const existingByKey = new Map<string, CartaoMovimentoComAlocacoes[]>();
+  const existingByCard: CartaoMovimentoComAlocacoes[] = [];
+  for (const movimento of params.existing) {
+    if (movimento.cartao_id !== params.cartao.id) continue;
+    existingByCard.push(movimento);
+    if (!movimento.tx_key) continue;
+    const list = existingByKey.get(movimento.tx_key) ?? [];
+    list.push(movimento);
+    existingByKey.set(movimento.tx_key, list);
+  }
+
+  const matchedIds = new Set<string>();
+  const preview = params.lines.map((line) => {
+    const tx_key = buildCartaoTxKeyLocal({
+      cartao_id: params.cartao.id,
+      data: line.data,
+      descricao: line.descricao,
+      valor: line.valor,
+      parcela_total: line.parcela_total,
+      parcela_numero: line.parcela_numero
+    });
+    const exactCandidates = existingByKey.get(tx_key) ?? [];
+    const exact = exactCandidates.find((item) => !matchedIds.has(item.id)) ?? null;
+    const loose = exact
+      ? null
+      : findLooseImportMatch({
+          line,
+          existing: existingByCard,
+          matchedIds
+        });
+    const current = exact ?? loose;
+    if (current) matchedIds.add(current.id);
+    return {
+      ...line,
+      tx_key,
+      status: current ? "ja_lancado" : "novo",
+      movimentoId: current?.id
+    } satisfies ImportPreviewItem;
+  });
+
+  const total = preview.length;
+  const conciliados = preview.filter((item) => item.status === "ja_lancado").length;
+  const novos = total - conciliados;
+  return { preview, total, novos, conciliados };
+}
+
+function defaultAtribuicaoForCardLocal(cartao: CartaoCredito | null): Atribuicao {
+  if (!cartao) return "AMBOS";
+  if (cartao.titular === "DEA" || cartao.titular === "JULIA") return "AMBOS";
+  return cartao.padrao_atribuicao;
+}
+
+function ymFromDateLocal(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.slice(0, 7);
+  return currentMonth();
+}
+
+function buildCartaoTxKeyLocal(input: {
+  cartao_id: string;
+  data: string;
+  descricao: string;
+  valor: number;
+  parcela_total?: number | null;
+  parcela_numero?: number | null;
+}) {
+  const total = input.parcela_total && input.parcela_total > 1 ? input.parcela_total : 1;
+  const numero = input.parcela_numero && input.parcela_numero > 0 ? input.parcela_numero : 1;
+  return [
+    input.cartao_id,
+    input.data,
+    normalizeTxDescricao(input.descricao),
+    input.valor.toFixed(2),
+    `${numero}/${total}`
+  ].join("|");
+}
+
+function hydrateMovimentosWithCards(
+  movimentos: CartaoMovimentoComAlocacoes[],
+  cards: CartaoCredito[]
+): CartaoMovimentoComAlocacoes[] {
+  const cardById = new Map(cards.map((item) => [item.id, item]));
+  return movimentos
+    .map((item) => ({
+      ...item,
+      cartao: cardById.get(item.cartao_id) ?? null
+    }))
+    .sort((a, b) => {
+      if (a.data !== b.data) return b.data.localeCompare(a.data);
+      return b.created_at.localeCompare(a.created_at);
+    });
+}
+
+function isYmOrEarlier(left: string, right: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(left) || !/^\d{4}-\d{2}$/.test(right)) return false;
+  return left <= right;
+}
+
+function monthDiffYm(start: string, end: string): number {
+  if (!/^\d{4}-\d{2}$/.test(start) || !/^\d{4}-\d{2}$/.test(end)) return 0;
+  const [startYearRaw, startMonthRaw] = start.split("-");
+  const [endYearRaw, endMonthRaw] = end.split("-");
+  const startYear = Number(startYearRaw);
+  const startMonth = Number(startMonthRaw);
+  const endYear = Number(endYearRaw);
+  const endMonth = Number(endMonthRaw);
+  if (!Number.isInteger(startYear) || !Number.isInteger(startMonth)) return 0;
+  if (!Number.isInteger(endYear) || !Number.isInteger(endMonth)) return 0;
+  return (endYear - startYear) * 12 + (endMonth - startMonth);
+}
+
+function compraParceladaKeyLocal(movimento: CartaoMovimentoComAlocacoes): string {
+  const tx = movimento.tx_key?.trim() ?? "";
+  if (tx) {
+    const base = tx.replace(/\|\d+\/\d+$/, "");
+    if (base !== tx) return base;
+  }
+
+  return [
+    movimento.cartao_id,
+    movimento.data,
+    normalizeTxDescricao(movimento.descricao),
+    movimento.valor.toFixed(2),
+    String(movimento.parcela_total ?? "")
+  ].join("|");
+}
+
+function computeTotalizadoresLocal(params: {
+  movimentos: CartaoMovimentoComAlocacoes[];
+  mes: string;
+  banco: BancoCartao;
+  cartaoId?: string | null;
+}): Totalizadores {
+  const total = {
+    WALKER: 0,
+    AMBOS: 0,
+    DEA: 0
+  };
+
+  let pendentes = 0;
+  let parcelasDoMes = 0;
+  const latestParcelaByCompra = new Map<string, CartaoMovimentoComAlocacoes>();
+
+  for (const movimento of params.movimentos) {
+    if (!movimento.cartao || movimento.cartao.banco !== params.banco) continue;
+    if (params.cartaoId && movimento.cartao_id !== params.cartaoId) continue;
+
+    const parcelaTotal = movimento.parcela_total ?? null;
+    const ehParcelado = Boolean(parcelaTotal && parcelaTotal > 1);
+
+    if (movimento.mes_ref === params.mes && ehParcelado) {
+      parcelasDoMes += movimento.valor;
+    }
+
+    if (ehParcelado && isYmOrEarlier(movimento.mes_ref, params.mes)) {
+      const key = compraParceladaKeyLocal(movimento);
+      const existing = latestParcelaByCompra.get(key);
+      if (!existing) {
+        latestParcelaByCompra.set(key, movimento);
+      } else {
+        const existingNumero = existing.parcela_numero ?? 1;
+        const currentNumero = movimento.parcela_numero ?? 1;
+        const shouldReplace =
+          currentNumero > existingNumero ||
+          (currentNumero === existingNumero && movimento.mes_ref > existing.mes_ref) ||
+          (currentNumero === existingNumero &&
+            movimento.mes_ref === existing.mes_ref &&
+            movimento.updated_at > existing.updated_at);
+        if (shouldReplace) {
+          latestParcelaByCompra.set(key, movimento);
+        }
+      }
+    }
+
+    if (movimento.mes_ref !== params.mes) continue;
+
+    if (movimento.status !== "conciliado") {
+      pendentes += 1;
+      continue;
+    }
+
+    for (const alocacao of movimento.alocacoes) {
+      if (alocacao.atribuicao === "WALKER") total.WALKER += alocacao.valor;
+      if (alocacao.atribuicao === "AMBOS") total.AMBOS += alocacao.valor;
+      if (alocacao.atribuicao === "DEA") total.DEA += alocacao.valor;
+    }
+  }
+
+  let totalParceladoEmAberto = 0;
+  let totalParceladoEmAbertoProjetado = 0;
+  for (const movimento of latestParcelaByCompra.values()) {
+    const parcelaTotal = movimento.parcela_total ?? 1;
+    const parcelaNumero = movimento.parcela_numero ?? 1;
+    const parcelaNumeroAtual = Math.min(Math.max(parcelaNumero, 1), parcelaTotal);
+    const restantesRealizados = Math.max(parcelaTotal - parcelaNumeroAtual, 0);
+    totalParceladoEmAberto += movimento.valor * restantesRealizados;
+
+    const avancarMeses = Math.max(monthDiffYm(movimento.mes_ref, params.mes), 0);
+    const parcelaNumeroProjetada = Math.min(parcelaNumeroAtual + avancarMeses, parcelaTotal);
+    const restantesProjetados = Math.max(parcelaTotal - parcelaNumeroProjetada, 0);
+    totalParceladoEmAbertoProjetado += movimento.valor * restantesProjetados;
+  }
+
+  return {
+    mes: params.mes,
+    banco: params.banco,
+    porAtribuicao: {
+      WALKER: Number(total.WALKER.toFixed(2)),
+      AMBOS: Number(total.AMBOS.toFixed(2)),
+      DEA: Number(total.DEA.toFixed(2))
+    },
+    pendentes,
+    parcelasDoMes: Number(parcelasDoMes.toFixed(2)),
+    totalParceladoEmAberto: Number(totalParceladoEmAberto.toFixed(2)),
+    totalParceladoEmAbertoProjetado: Number(totalParceladoEmAbertoProjetado.toFixed(2))
+  };
+}
 
 export default function CartoesPage() {
+  const { mobileOfflineMode } = useFeatureFlags();
+
   const buildEmptyCardForm = () => ({
     id: "",
     nome: "",
     banco: "C6" as BancoCartao,
-    titular: "WALKER",
+    titular: "WALKER" as CartaoCredito["titular"],
     final_cartao: "",
     padrao_atribuicao: "AMBOS" as Atribuicao,
     ativo: true
@@ -458,10 +827,67 @@ export default function CartoesPage() {
     [movimentos, editMoveForm.id]
   );
 
+  const applySnapshot = useCallback(
+    (
+      nextCards: CartaoCredito[],
+      nextMovimentosRaw: CartaoMovimentoComAlocacoes[],
+      options?: { persist?: boolean }
+    ) => {
+      const hydratedMovimentos = hydrateMovimentosWithCards(nextMovimentosRaw, nextCards);
+      setCards(nextCards);
+      setMovimentos(hydratedMovimentos);
+      if (options?.persist && mobileOfflineMode) {
+        writeCachedCards(nextCards);
+        writeCachedMovimentos(hydratedMovimentos);
+      }
+
+      const defaultCardRow = nextCards.find((item) => item.ativo) ?? nextCards[0] ?? null;
+      const selectedStillExists = selectedCardId
+        ? nextCards.some((item) => item.id === selectedCardId)
+        : false;
+
+      if (selectedCardId && !selectedStillExists) {
+        setSelectedCardId(null);
+      }
+
+      const effectiveCardId = selectedStillExists ? selectedCardId ?? "" : defaultCardRow?.id ?? "";
+      const effectiveCard = nextCards.find((item) => item.id === effectiveCardId) ?? defaultCardRow;
+      setMoveForm((prev) => ({
+        ...prev,
+        cartao_id: effectiveCardId,
+        atribuicao: effectiveCard?.padrao_atribuicao ?? prev.atribuicao
+      }));
+      setImportCardId((prev) => prev || nextCards[0]?.id || "");
+
+      const localTotalizadores = computeTotalizadoresLocal({
+        movimentos: hydratedMovimentos,
+        mes: month,
+        banco: bank,
+        cartaoId: selectedStillExists ? selectedCardId : null
+      });
+      setTotalizadores(localTotalizadores);
+    },
+    [bank, month, mobileOfflineMode, selectedCardId]
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    const cachedCards = mobileOfflineMode ? readCachedCards() : [];
+    const cachedMovimentos = mobileOfflineMode ? readCachedMovimentos() : [];
+    if (mobileOfflineMode && (cachedCards.length > 0 || cachedMovimentos.length > 0)) {
+      applySnapshot(cachedCards, cachedMovimentos);
+    }
+
     try {
+      const online = typeof navigator === "undefined" ? true : navigator.onLine;
+      if (mobileOfflineMode && !online) {
+        if (cachedCards.length === 0 && cachedMovimentos.length === 0) {
+          throw new Error("Sem dados locais de cartões. Conecte uma vez para carregar a base inicial.");
+        }
+        return;
+      }
+
       const totalizadoresParams = new URLSearchParams({
         mes: month,
         banco: bank
@@ -479,42 +905,27 @@ export default function CartoesPage() {
       const cardsPayload = await cardsRes.json();
       if (!cardsRes.ok) throw new Error(cardsPayload.message ?? "Erro ao carregar cartoes");
       const rows = cardsPayload.data ?? [];
-      setCards(rows);
-      const defaultCardRow = rows.find((item: CartaoCredito) => item.ativo) ?? rows[0] ?? null;
-      const selectedStillExists = selectedCardId
-        ? rows.some((item: CartaoCredito) => item.id === selectedCardId)
-        : false;
-
-      if (selectedCardId && !selectedStillExists) {
-        setSelectedCardId(null);
-      }
-
-      const effectiveCardId = selectedStillExists
-        ? selectedCardId
-        : defaultCardRow?.id ?? "";
-      const effectiveCard = rows.find((item: CartaoCredito) => item.id === effectiveCardId) ?? defaultCardRow;
-      setMoveForm((prev) => ({
-        ...prev,
-        cartao_id: effectiveCardId,
-        atribuicao: effectiveCard?.padrao_atribuicao ?? prev.atribuicao
-      }));
-      setImportCardId((prev) => prev || rows[0]?.id || "");
 
       const movPayload = await movRes.json();
       if (!movRes.ok) throw new Error(movPayload.message ?? "Erro ao carregar movimentos");
-      setMovimentos(movPayload.data ?? []);
+      const remoteMovimentos = (movPayload.data ?? []) as CartaoMovimentoComAlocacoes[];
+      applySnapshot(rows as CartaoCredito[], remoteMovimentos, { persist: mobileOfflineMode });
 
       const totalizadoresPayload = await totalizadoresRes.json();
-      if (!totalizadoresRes.ok) {
+      if (!totalizadoresRes.ok && !mobileOfflineMode) {
         throw new Error(totalizadoresPayload.message ?? "Erro ao carregar totalizadores");
       }
-      setTotalizadores((totalizadoresPayload.data ?? null) as Totalizadores | null);
+      if (totalizadoresRes.ok) {
+        setTotalizadores((totalizadoresPayload.data ?? null) as Totalizadores | null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado ao carregar modulo de cartoes");
+      if (!mobileOfflineMode || (cachedCards.length === 0 && cachedMovimentos.length === 0)) {
+        setError(err instanceof Error ? err.message : "Erro inesperado ao carregar modulo de cartoes");
+      }
     } finally {
       setLoading(false);
     }
-  }, [bank, month, selectedCardId]);
+  }, [applySnapshot, bank, mobileOfflineMode, month, selectedCardId]);
 
   useEffect(() => {
     load();
@@ -693,6 +1104,41 @@ export default function CartoesPage() {
     setMessage("");
     try {
       const editing = Boolean(cardForm.id);
+      if (mobileOfflineMode) {
+        const now = new Date().toISOString();
+        const current = editing ? cards.find((item) => item.id === cardForm.id) ?? null : null;
+        const localCard: CartaoCredito = {
+          id: ensureUuid(cardForm.id),
+          nome: cardForm.nome.trim(),
+          banco: cardForm.banco,
+          titular: cardForm.titular,
+          final_cartao: cardForm.final_cartao.trim(),
+          padrao_atribuicao: cardForm.padrao_atribuicao,
+          ativo: cardForm.ativo,
+          created_at: current?.created_at ?? now,
+          updated_at: now
+        };
+        const nextCards = editing
+          ? cards.map((item) => (item.id === cardForm.id ? localCard : item))
+          : [localCard, ...cards];
+        applySnapshot(nextCards, movimentos, { persist: true });
+        await queueCartaoUpsertLocal({
+          id: localCard.id,
+          nome: localCard.nome,
+          banco: localCard.banco,
+          titular: localCard.titular,
+          final_cartao: localCard.final_cartao,
+          padrao_atribuicao: localCard.padrao_atribuicao,
+          ativo: localCard.ativo,
+          created_at: localCard.created_at,
+          updated_at: localCard.updated_at
+        });
+        setMessage(editing ? "Cartao atualizado localmente. Use Sync para enviar." : "Cartao salvo localmente. Use Sync para enviar.");
+        setCardForm(buildEmptyCardForm());
+        setShowCardModal(false);
+        return;
+      }
+
       const requestBody = {
         ...cardForm,
         id: editing ? cardForm.id : undefined
@@ -759,12 +1205,77 @@ export default function CartoesPage() {
         valor,
         parcela_numero: moveForm.parcela_numero ? Number(moveForm.parcela_numero) : null,
         parcela_total: moveForm.parcela_total ? Number(moveForm.parcela_total) : null,
-        origem: "manual",
-        status: "conciliado",
+        origem: "manual" as const,
+        status: "conciliado" as const,
         mes_ref: month,
         observacao: moveForm.observacao,
         alocacoes
       };
+
+      if (mobileOfflineMode) {
+        const now = new Date().toISOString();
+        const id = ensureUuid();
+        const tx_key = buildCartaoTxKeyLocal({
+          cartao_id: payload.cartao_id,
+          data: payload.data,
+          descricao: payload.descricao,
+          valor: payload.valor,
+          parcela_total: payload.parcela_total,
+          parcela_numero: payload.parcela_numero
+        });
+        const localMovement: CartaoMovimentoComAlocacoes = {
+          id,
+          cartao_id: payload.cartao_id,
+          data: payload.data,
+          descricao: payload.descricao.trim(),
+          valor: Number(payload.valor.toFixed(2)),
+          parcela_total: payload.parcela_total,
+          parcela_numero: payload.parcela_numero,
+          tx_key,
+          origem: payload.origem,
+          status: payload.status,
+          mes_ref: payload.mes_ref,
+          observacao: payload.observacao.trim(),
+          created_at: now,
+          updated_at: now,
+          cartao: cardById.get(payload.cartao_id) ?? null,
+          alocacoes: payload.alocacoes.map((item) => ({
+            id: ensureUuid(),
+            movimento_id: id,
+            atribuicao: item.atribuicao,
+            valor: Number(item.valor.toFixed(2)),
+            created_at: now,
+            updated_at: now
+          }))
+        };
+
+        const nextMovimentos = [localMovement, ...movimentos];
+        applySnapshot(cards, nextMovimentos, { persist: true });
+        await queueCartaoMovimentoUpsertLocal({
+          ...localMovement,
+          id: localMovement.id,
+          alocacoes: localMovement.alocacoes.map((item) => ({
+            id: item.id,
+            atribuicao: item.atribuicao,
+            valor: item.valor,
+            created_at: item.created_at,
+            updated_at: item.updated_at
+          }))
+        });
+
+        setMessage("Compra de cartao salva localmente. Use Sync para enviar.");
+        setMoveForm((prev) => ({
+          ...prev,
+          descricao: "",
+          valor: "",
+          parcela_numero: "",
+          parcela_total: "",
+          observacao: "",
+          splitMode: "none",
+          splitValor: ""
+        }));
+        return;
+      }
 
       const response = await fetch("/api/cartoes/movimentos", {
         method: "POST",
@@ -834,6 +1345,61 @@ export default function CartoesPage() {
         alocacoes = [{ atribuicao: editMoveForm.atribuicao, valor: Number(valor.toFixed(2)) }];
       }
 
+      if (mobileOfflineMode) {
+        const current = movimentos.find((item) => item.id === editMoveForm.id) ?? null;
+        if (!current) throw new Error("Movimento nao encontrado localmente");
+        const now = new Date().toISOString();
+        const tx_key = buildCartaoTxKeyLocal({
+          cartao_id: editMoveForm.cartao_id,
+          data: editMoveForm.data,
+          descricao: editMoveForm.descricao,
+          valor,
+          parcela_total: editMoveForm.parcela_total ? Number(editMoveForm.parcela_total) : null,
+          parcela_numero: editMoveForm.parcela_numero ? Number(editMoveForm.parcela_numero) : null
+        });
+        const updatedMovement: CartaoMovimentoComAlocacoes = {
+          ...current,
+          cartao_id: editMoveForm.cartao_id,
+          data: editMoveForm.data,
+          descricao: editMoveForm.descricao.trim(),
+          valor: Number(valor.toFixed(2)),
+          parcela_numero: editMoveForm.parcela_numero ? Number(editMoveForm.parcela_numero) : null,
+          parcela_total: editMoveForm.parcela_total ? Number(editMoveForm.parcela_total) : null,
+          origem: editMoveForm.origem,
+          status: "conciliado",
+          observacao: editMoveForm.observacao.trim(),
+          tx_key,
+          updated_at: now,
+          cartao: cardById.get(editMoveForm.cartao_id) ?? null,
+          alocacoes: alocacoes.map((item, index) => ({
+            id: current.alocacoes[index]?.id ?? ensureUuid(),
+            movimento_id: current.id,
+            atribuicao: item.atribuicao,
+            valor: Number(item.valor.toFixed(2)),
+            created_at: current.alocacoes[index]?.created_at ?? now,
+            updated_at: now
+          }))
+        };
+        const nextMovimentos = movimentos.map((item) =>
+          item.id === updatedMovement.id ? updatedMovement : item
+        );
+        applySnapshot(cards, nextMovimentos, { persist: true });
+        await queueCartaoMovimentoUpsertLocal({
+          ...updatedMovement,
+          id: updatedMovement.id,
+          alocacoes: updatedMovement.alocacoes.map((item) => ({
+            id: item.id,
+            atribuicao: item.atribuicao,
+            valor: item.valor,
+            created_at: item.created_at,
+            updated_at: item.updated_at
+          }))
+        });
+        setMessage("Gasto atualizado localmente. Use Sync para enviar.");
+        resetEditMoveForm();
+        return;
+      }
+
       const response = await fetch("/api/cartoes/movimentos", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -872,6 +1438,17 @@ export default function CartoesPage() {
     setError("");
     setMessage("");
     try {
+      if (mobileOfflineMode) {
+        const nextMovimentos = movimentos.filter((item) => item.id !== movimento.id);
+        applySnapshot(cards, nextMovimentos, { persist: true });
+        await queueCartaoMovimentoDeleteLocal(movimento.id);
+        if (editMoveForm.id === movimento.id) {
+          resetEditMoveForm();
+        }
+        setMessage("Gasto excluido localmente. Use Sync para enviar.");
+        return;
+      }
+
       const response = await fetch(`/api/cartoes/movimentos?id=${movimento.id}`, {
         method: "DELETE"
       });
@@ -894,6 +1471,39 @@ export default function CartoesPage() {
     movimento: CartaoMovimentoComAlocacoes,
     alocacoes: Array<{ atribuicao: Atribuicao; valor: number }>
   ) {
+    if (mobileOfflineMode) {
+      const now = new Date().toISOString();
+      const updatedMovement: CartaoMovimentoComAlocacoes = {
+        ...movimento,
+        status: "conciliado",
+        updated_at: now,
+        alocacoes: alocacoes.map((item, index) => ({
+          id: movimento.alocacoes[index]?.id ?? ensureUuid(),
+          movimento_id: movimento.id,
+          atribuicao: item.atribuicao,
+          valor: Number(item.valor.toFixed(2)),
+          created_at: movimento.alocacoes[index]?.created_at ?? now,
+          updated_at: now
+        }))
+      };
+      const nextMovimentos = movimentos.map((item) =>
+        item.id === movimento.id ? updatedMovement : item
+      );
+      applySnapshot(cards, nextMovimentos, { persist: true });
+      await queueCartaoMovimentoUpsertLocal({
+        ...updatedMovement,
+        id: updatedMovement.id,
+        alocacoes: updatedMovement.alocacoes.map((item) => ({
+          id: item.id,
+          atribuicao: item.atribuicao,
+          valor: item.valor,
+          created_at: item.created_at,
+          updated_at: item.updated_at
+        }))
+      });
+      return;
+    }
+
     const response = await fetch("/api/cartoes/movimentos", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -925,8 +1535,12 @@ export default function CartoesPage() {
     setMessage("");
     try {
       await updateMovementClassification(movimento, alocacoes);
-      setMessage(`Compra "${movimento.descricao}" classificada.`);
-      await load();
+      if (mobileOfflineMode) {
+        setMessage(`Compra "${movimento.descricao}" classificada localmente. Use Sync para enviar.`);
+      } else {
+        setMessage(`Compra "${movimento.descricao}" classificada.`);
+        await load();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao classificar movimento");
     }
@@ -959,8 +1573,14 @@ export default function CartoesPage() {
         const atribuicao = card?.padrao_atribuicao ?? "AMBOS";
         await updateMovementClassification(movimento, [{ atribuicao, valor: movimento.valor }]);
       }
-      setMessage(`${pendingFiltered.length} pendencia(s) classificada(s) com atribuicao default do cartao.`);
-      await load();
+      if (mobileOfflineMode) {
+        setMessage(
+          `${pendingFiltered.length} pendencia(s) classificada(s) localmente com atribuicao default do cartao. Use Sync para enviar.`
+        );
+      } else {
+        setMessage(`${pendingFiltered.length} pendencia(s) classificada(s) com atribuicao default do cartao.`);
+        await load();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro na classificacao em lote");
     } finally {
@@ -975,6 +1595,26 @@ export default function CartoesPage() {
       if (!importCardId) throw new Error("Selecione o cartao da fatura");
       const lines = resolveImportLines();
       if (!lines.length) throw new Error("Nenhuma linha valida encontrada para importacao");
+      const card = cardById.get(importCardId);
+      if (!card) throw new Error("Cartao nao encontrado");
+
+      if (mobileOfflineMode) {
+        const filtered = filterLinesByCardFinalLocal(lines, card.final_cartao ?? "");
+        const result = reconcileImportLinesLocal({
+          cartao: card,
+          lines: filtered.lines,
+          existing: movimentos
+        });
+        setPreview({
+          cartao: card,
+          total: result.total,
+          novos: result.novos,
+          conciliados: result.conciliados,
+          filtradosPorFinalCartao: filtered.ignored,
+          preview: result.preview
+        });
+        return;
+      }
 
       const response = await fetch("/api/cartoes/importar/preview", {
         method: "POST",
@@ -998,6 +1638,108 @@ export default function CartoesPage() {
       if (!importCardId) throw new Error("Selecione o cartao");
       const lines = resolveImportLines();
       if (!lines.length) throw new Error("Nenhuma linha valida para importacao");
+      const card = cardById.get(importCardId);
+      if (!card) throw new Error("Cartao nao encontrado");
+
+      if (mobileOfflineMode) {
+        const filtered = filterLinesByCardFinalLocal(lines, card.final_cartao ?? "");
+        const reconciled = reconcileImportLinesLocal({
+          cartao: card,
+          lines: filtered.lines,
+          existing: movimentos
+        });
+        const now = new Date().toISOString();
+        const mesRefFatura = importMesRef.trim();
+        const defaultAtribuicao = defaultAtribuicaoForCardLocal(card);
+
+        const existingIdsToAlign = new Set(
+          reconciled.preview
+            .filter((item) => item.status === "ja_lancado" && item.movimentoId)
+            .map((item) => item.movimentoId as string)
+        );
+
+        let realinhadosMesRef = 0;
+        const updatedExisting: CartaoMovimentoComAlocacoes[] = [];
+        let baseMovimentos = movimentos.map((item) => {
+          if (!existingIdsToAlign.has(item.id)) return item;
+          if (!mesRefFatura || item.origem !== "fatura" || item.mes_ref === mesRefFatura) return item;
+          realinhadosMesRef += 1;
+          const next = {
+            ...item,
+            mes_ref: mesRefFatura,
+            updated_at: now
+          };
+          updatedExisting.push(next);
+          return next;
+        });
+
+        const novos = reconciled.preview.filter((item) => item.status === "novo");
+        const inserted: CartaoMovimentoComAlocacoes[] = novos.map((item) => {
+          const id = ensureUuid();
+          const observacao = item.observacao?.trim()
+            ? `${item.observacao.trim()} [IMPORT_FATURA]`
+            : "[IMPORT_FATURA]";
+          return {
+            id,
+            cartao_id: card.id,
+            data: item.data,
+            descricao: item.descricao.trim(),
+            valor: Number(item.valor.toFixed(2)),
+            parcela_total: item.parcela_total ?? null,
+            parcela_numero: item.parcela_numero ?? null,
+            tx_key: item.tx_key,
+            origem: "fatura",
+            status: "pendente",
+            mes_ref: mesRefFatura || ymFromDateLocal(item.data),
+            observacao,
+            created_at: now,
+            updated_at: now,
+            cartao: card,
+            alocacoes: [
+              {
+                id: ensureUuid(),
+                movimento_id: id,
+                atribuicao: defaultAtribuicao,
+                valor: Number(item.valor.toFixed(2)),
+                created_at: now,
+                updated_at: now
+              }
+            ]
+          };
+        });
+
+        if (inserted.length > 0) {
+          baseMovimentos = [...inserted, ...baseMovimentos];
+        }
+
+        applySnapshot(cards, baseMovimentos, { persist: true });
+
+        const queued = [...updatedExisting, ...inserted];
+        for (const movimento of queued) {
+          await queueCartaoMovimentoUpsertLocal({
+            ...movimento,
+            id: movimento.id,
+            alocacoes: movimento.alocacoes.map((alocacao) => ({
+              id: alocacao.id,
+              atribuicao: alocacao.atribuicao,
+              valor: alocacao.valor,
+              created_at: alocacao.created_at,
+              updated_at: alocacao.updated_at
+            }))
+          });
+        }
+
+        setMessage(
+          `Importacao concluida: ${inserted.length} nova(s) compra(s). Pendentes de classificacao: ${inserted.length}.` +
+            (Number(filtered.ignored) > 0
+              ? ` Ignoradas por final do cartao: ${Number(filtered.ignored)}.`
+              : "") +
+            (realinhadosMesRef > 0 ? ` Reclassificadas para o mes da fatura: ${realinhadosMesRef}.` : "") +
+            " Use Sync para enviar."
+        );
+        setPreview(null);
+        return;
+      }
 
       const response = await fetch("/api/cartoes/importar/run", {
         method: "POST",
@@ -1027,6 +1769,15 @@ export default function CartoesPage() {
     setError("");
     setMessage("");
     try {
+      if (mobileOfflineMode) {
+        const online = typeof navigator === "undefined" ? true : navigator.onLine;
+        if (!online) {
+          throw new Error(
+            "Sem internet para gerar lançamentos de fechamento no legado. Os totais de cartões continuam disponíveis offline."
+          );
+        }
+      }
+
       const response = await fetch("/api/cartoes/gerar-lancamentos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

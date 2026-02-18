@@ -1,15 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
 import { normalizeCategoryName, normalizeCategorySlug } from "@/lib/categories";
+import { queueCategoriaUpsertLocal } from "@/lib/mobileOffline/queue";
+import { MOBILE_OFFLINE_CATEGORIAS_CACHE_KEY } from "@/lib/mobileOffline/storageKeys";
 
 type CategoriaOption = {
   id: string;
   nome: string;
   slug: string;
   ativa: boolean;
+  cor?: string;
   usoTotal?: number;
   legacy?: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 interface CategoryPickerProps {
@@ -22,7 +28,41 @@ interface CategoryPickerProps {
   allowCreate?: boolean;
 }
 
+function readCachedCategorias(): CategoriaOption[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CATEGORIAS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as CategoriaOption[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedCategorias(items: CategoriaOption[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_CATEGORIAS_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falha de persistencia local.
+  }
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function ensureUuid(value?: string) {
+  if (value && UUID_PATTERN.test(value)) return value;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
 export function CategoryPicker(props: CategoryPickerProps) {
+  const { mobileOfflineMode } = useFeatureFlags();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -37,13 +77,21 @@ export function CategoryPicker(props: CategoryPickerProps) {
   async function load() {
     setLoading(true);
     setError("");
+    const cached = readCachedCategorias();
+    if (cached.length > 0) {
+      setOptions(cached);
+    }
     try {
       const response = await fetch("/api/categorias?ativo=true");
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? "Erro ao carregar categorias");
-      setOptions((payload.data ?? []) as CategoriaOption[]);
+      const next = (payload.data ?? []) as CategoriaOption[];
+      setOptions(next);
+      writeCachedCategorias(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado ao carregar categorias");
+      if (cached.length === 0) {
+        setError(err instanceof Error ? err.message : "Erro inesperado ao carregar categorias");
+      }
     } finally {
       setLoading(false);
     }
@@ -87,7 +135,45 @@ export function CategoryPicker(props: CategoryPickerProps) {
     if (!createCandidate) return;
     setCreating(true);
     setError("");
+
     try {
+      const offline = typeof navigator !== "undefined" && !navigator.onLine;
+      if (mobileOfflineMode || offline) {
+        const nome = createCandidate;
+        const slug = normalizeCategorySlug(nome);
+        const now = new Date().toISOString();
+        const created: CategoriaOption = {
+          id: ensureUuid(),
+          nome,
+          slug,
+          ativa: true,
+          legacy: true,
+          cor: "",
+          created_at: now,
+          updated_at: now
+        };
+        setOptions((prev) => {
+          if (prev.some((item) => item.slug === created.slug)) return prev;
+          const next = [...prev, created];
+          writeCachedCategorias(next);
+          return next;
+        });
+        props.onChange(created.nome);
+        setSearch("");
+        setOpen(false);
+        await queueCategoriaUpsertLocal({
+          id: created.id,
+          nome: created.nome,
+          slug: created.slug,
+          ativa: true,
+          ordem: null,
+          cor: "",
+          created_at: created.created_at,
+          updated_at: created.updated_at
+        });
+        return;
+      }
+
       const response = await fetch("/api/categorias", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,7 +185,9 @@ export function CategoryPicker(props: CategoryPickerProps) {
       const created = payload.data as CategoriaOption;
       setOptions((prev) => {
         if (prev.some((item) => item.slug === created.slug)) return prev;
-        return [...prev, created];
+        const next = [...prev, created];
+        writeCachedCategorias(next);
+        return next;
       });
       props.onChange(created.nome);
       setSearch("");

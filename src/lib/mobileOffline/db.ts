@@ -3,9 +3,10 @@
 import type { Lancamento } from "@/lib/types";
 
 const DB_NAME = "financas_mobile_offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const LANCAMENTOS_STORE = "lancamentos_local";
 const SYNC_STATE_STORE = "sync_state";
+const SYNC_OPS_STORE = "sync_ops";
 const GLOBAL_SYNC_STATE_ID = "global";
 
 export type SyncStatus = "idle" | "syncing" | "success" | "error";
@@ -28,6 +29,26 @@ export interface SyncStateRecord {
   last_sync_at: string | null;
   last_sync_status: SyncStatus;
   last_sync_error: string | null;
+}
+
+export type SyncEntity =
+  | "lancamento"
+  | "conta_fixa"
+  | "calendario_anual"
+  | "categoria"
+  | "cartao"
+  | "cartao_movimento";
+export type SyncAction = "upsert" | "delete";
+
+export interface SyncOpRecord {
+  op_id: string;
+  entity: SyncEntity;
+  entity_id: string;
+  action: SyncAction;
+  payload: unknown | null;
+  synced: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 function assertIndexedDbAvailable() {
@@ -68,6 +89,15 @@ function openDb(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(SYNC_STATE_STORE)) {
         db.createObjectStore(SYNC_STATE_STORE, { keyPath: "id" });
+      }
+
+      if (!db.objectStoreNames.contains(SYNC_OPS_STORE)) {
+        const store = db.createObjectStore(SYNC_OPS_STORE, { keyPath: "op_id" });
+        store.createIndex("synced", "synced", { unique: false });
+        store.createIndex("entity", "entity", { unique: false });
+        store.createIndex("entity_id", "entity_id", { unique: false });
+        store.createIndex("entity_entity_id", ["entity", "entity_id"], { unique: false });
+        store.createIndex("updated_at", "updated_at", { unique: false });
       }
     };
 
@@ -189,6 +219,12 @@ export async function markLancamentosAsSynced(ids: string[]): Promise<void> {
   });
 }
 
+export async function deleteLocalLancamentoById(id: string): Promise<void> {
+  await withStore(LANCAMENTOS_STORE, "readwrite", async (store) => {
+    await requestToPromise(store.delete(id));
+  });
+}
+
 export async function getSyncState(): Promise<SyncStateRecord> {
   return withStore(SYNC_STATE_STORE, "readonly", async (store) => {
     const result = await requestToPromise(store.get(GLOBAL_SYNC_STATE_ID) as IDBRequest<SyncStateRecord | undefined>);
@@ -209,5 +245,87 @@ export async function setSyncState(
   return withStore(SYNC_STATE_STORE, "readwrite", async (store) => {
     await requestToPromise(store.put(next));
     return next;
+  });
+}
+
+export async function listSyncOps(options?: {
+  synced?: boolean;
+  entity?: SyncEntity;
+}): Promise<SyncOpRecord[]> {
+  const records = await withStore(SYNC_OPS_STORE, "readonly", async (store) => {
+    const all = await requestToPromise(store.getAll() as IDBRequest<SyncOpRecord[]>);
+    return all;
+  });
+
+  return records
+    .filter((record) => {
+      if (typeof options?.synced === "boolean" && record.synced !== options.synced) {
+        return false;
+      }
+      if (options?.entity && record.entity !== options.entity) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+}
+
+export async function countPendingSyncOps(entity?: SyncEntity): Promise<number> {
+  const pending = await listSyncOps({ synced: false, entity });
+  return pending.length;
+}
+
+export async function upsertSyncOp(input: {
+  op_id: string;
+  entity: SyncEntity;
+  entity_id: string;
+  action: SyncAction;
+  payload?: unknown | null;
+}): Promise<SyncOpRecord> {
+  const now = new Date().toISOString();
+
+  return withStore(SYNC_OPS_STORE, "readwrite", async (store) => {
+    const index = store.index("entity_entity_id");
+    const existing = (await requestToPromise(
+      index.getAll([input.entity, input.entity_id]) as IDBRequest<SyncOpRecord[]>
+    )) as SyncOpRecord[];
+
+    const latestPending = existing
+      .filter((item) => !item.synced)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+
+    const targetId = latestPending?.op_id ?? input.op_id;
+    const record: SyncOpRecord = {
+      op_id: targetId,
+      entity: input.entity,
+      entity_id: input.entity_id,
+      action: input.action,
+      payload: input.payload ?? null,
+      synced: false,
+      created_at: latestPending?.created_at ?? now,
+      updated_at: now
+    };
+
+    await requestToPromise(store.put(record));
+    return record;
+  });
+}
+
+export async function markSyncOpsAsSynced(opIds: string[]): Promise<void> {
+  if (opIds.length === 0) return;
+
+  await withStore(SYNC_OPS_STORE, "readwrite", async (store) => {
+    const now = new Date().toISOString();
+    for (const opId of opIds) {
+      const current = await requestToPromise(store.get(opId) as IDBRequest<SyncOpRecord | undefined>);
+      if (!current) continue;
+      await requestToPromise(
+        store.put({
+          ...current,
+          synced: true,
+          updated_at: now
+        })
+      );
+    }
   });
 }

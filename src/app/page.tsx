@@ -1,7 +1,17 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import type { DashboardData, Lancamento } from "@/lib/types";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
+import { computeDashboard, filterByMonth } from "@/domain/calculations";
+import { listLocalLancamentos, type LocalLancamentoRecord } from "@/lib/mobileOffline/db";
+import { queueLancamentoDeleteLocal, queueLancamentoUpdateLocal } from "@/lib/mobileOffline/queue";
+import {
+  MOBILE_OFFLINE_CALENDARIO_ANUAL_CACHE_KEY,
+  MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY,
+  MOBILE_OFFLINE_LANCAMENTOS_CACHE_KEY,
+  MOBILE_OFFLINE_RECEITAS_REGRAS_CACHE_KEY
+} from "@/lib/mobileOffline/storageKeys";
+import type { CalendarioAnual, ContaFixa, DashboardData, Lancamento, ReceitasRegra } from "@/lib/types";
 
 const MANUAL_BALANCE_STORAGE_KEY = "dashboard.manual-balance.v2";
 const BANK_BALANCE_FIELDS = [
@@ -167,7 +177,124 @@ function saveManualBalance(month: string, bankBalances: BankBalances, saldoCarte
   window.localStorage.setItem(MANUAL_BALANCE_STORAGE_KEY, JSON.stringify(nextStore));
 }
 
+function readCachedLancamentos(): Lancamento[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_LANCAMENTOS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as Lancamento[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedLancamentos(items: Lancamento[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_LANCAMENTOS_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
+function readCachedContasFixas(): ContaFixa[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as ContaFixa[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedContasFixas(items: ContaFixa[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
+function readCachedCalendarioAnual(): CalendarioAnual[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CALENDARIO_ANUAL_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as CalendarioAnual[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedCalendarioAnual(items: CalendarioAnual[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_CALENDARIO_ANUAL_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
+function readCachedReceitasRegras(): ReceitasRegra[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_RECEITAS_REGRAS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as ReceitasRegra[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedReceitasRegras(items: ReceitasRegra[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_RECEITAS_REGRAS_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
+function fromLocalRecord(record: LocalLancamentoRecord): Lancamento {
+  return {
+    ...record.payload,
+    id: record.id,
+    created_at: record.payload.created_at ?? record.created_at,
+    updated_at: record.payload.updated_at ?? record.updated_at
+  };
+}
+
+function mergeLancamentosById(remote: Lancamento[], localRecords: LocalLancamentoRecord[]) {
+  const byId = new Map<string, Lancamento>();
+  for (const item of remote) {
+    byId.set(item.id, item);
+  }
+  for (const record of localRecords) {
+    const next = fromLocalRecord(record);
+    const current = byId.get(next.id);
+    if (!current || current.updated_at <= next.updated_at) {
+      byId.set(next.id, next);
+    }
+  }
+  return [...byId.values()].sort((a, b) => {
+    const dateDiff = b.data.localeCompare(a.data);
+    if (dateDiff !== 0) return dateDiff;
+    return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+  });
+}
+
 export default function DashboardPage() {
+  const { mobileOfflineMode } = useFeatureFlags();
   const [month, setMonth] = useState(currentMonth());
   const [bankBalances, setBankBalances] = useState<BankBalances>(createEmptyBankBalances());
   const [saldoCarteira, setSaldoCarteira] = useState("");
@@ -214,13 +341,126 @@ export default function DashboardPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [operationMessage, setOperationMessage] = useState("");
 
-  async function fetchDashboard(nextMonth: string, options?: { skipLoading?: boolean }) {
+  async function loadMobileOfflineSnapshot(
+    nextMonth: string,
+    overrides?: { bankBalances?: BankBalances; saldoCarteira?: string }
+  ) {
+    const localRecords = await listLocalLancamentos();
+    const cachedLancamentos = readCachedLancamentos();
+    const cachedContasFixas = readCachedContasFixas();
+    const cachedCalendarioAnual = readCachedCalendarioAnual();
+    const cachedReceitasRegras = readCachedReceitasRegras();
+    const online = typeof navigator === "undefined" ? true : navigator.onLine;
+
+    let remoteLancamentos: Lancamento[] | null = null;
+    let remoteContasFixas: ContaFixa[] | null = null;
+    let remoteCalendarioAnual: CalendarioAnual[] | null = null;
+    let remoteReceitasRegras: ReceitasRegra[] | null = null;
+
+    if (online) {
+      try {
+        const response = await fetch("/api/lancamentos");
+        const payload = await response.json();
+        if (response.ok) {
+          remoteLancamentos = (payload.data ?? []) as Lancamento[];
+          writeCachedLancamentos(remoteLancamentos);
+        }
+      } catch {
+        remoteLancamentos = null;
+      }
+
+      try {
+        const response = await fetch("/api/contas-fixas");
+        const payload = await response.json();
+        if (response.ok) {
+          remoteContasFixas = (payload.data ?? []) as ContaFixa[];
+          writeCachedContasFixas(remoteContasFixas);
+        }
+      } catch {
+        remoteContasFixas = null;
+      }
+
+      try {
+        const response = await fetch("/api/calendario-anual");
+        const payload = await response.json();
+        if (response.ok) {
+          remoteCalendarioAnual = (payload.data ?? []) as CalendarioAnual[];
+          writeCachedCalendarioAnual(remoteCalendarioAnual);
+        }
+      } catch {
+        remoteCalendarioAnual = null;
+      }
+
+      try {
+        const response = await fetch("/api/receitas-regras");
+        const payload = await response.json();
+        if (response.ok) {
+          remoteReceitasRegras = (payload.data ?? []) as ReceitasRegra[];
+          writeCachedReceitasRegras(remoteReceitasRegras);
+        }
+      } catch {
+        remoteReceitasRegras = null;
+      }
+    }
+
+    const baseLancamentos = remoteLancamentos ?? cachedLancamentos;
+    const contasFixas = remoteContasFixas ?? cachedContasFixas;
+    const calendarioAnual = remoteCalendarioAnual ?? cachedCalendarioAnual;
+    const receitasRegras = remoteReceitasRegras ?? cachedReceitasRegras;
+    const lancamentosAll = mergeLancamentosById(baseLancamentos, localRecords);
+    const lancamentosMes = filterByMonth(lancamentosAll, nextMonth);
+
+    if (lancamentosAll.length === 0 && contasFixas.length === 0) {
+      throw new Error("Sem dados locais para montar o dashboard. Conecte uma vez para carregar a base inicial.");
+    }
+
+    const currentBankBalances = overrides?.bankBalances ?? bankBalances;
+    const currentSaldoCarteira = overrides?.saldoCarteira ?? saldoCarteira;
+    const saldoBanco = BANK_BALANCE_FIELDS.reduce(
+      (acc, item) => acc + parseInputNumber(currentBankBalances[item.key]),
+      0
+    );
+    const saldoCarteiraNum = parseInputNumber(currentSaldoCarteira);
+
+    const dashboard = computeDashboard({
+      month: nextMonth,
+      lancamentos: lancamentosAll,
+      cartaoMovimentos: [],
+      contasFixas,
+      calendarioAnual,
+      receitasRegras,
+      saldoBanco,
+      saldoCarteira: saldoCarteiraNum,
+      fonteSaldoReal: "manual"
+    });
+
+    return {
+      dashboard,
+      lancamentosMes
+    };
+  }
+
+  async function fetchDashboard(
+    nextMonth: string,
+    options?: { skipLoading?: boolean; bankBalances?: BankBalances; saldoCarteira?: string }
+  ) {
     const shouldManageLoading = !options?.skipLoading;
     if (shouldManageLoading) {
       setLoading(true);
     }
     setError(null);
     try {
+      if (mobileOfflineMode) {
+        const snapshot = await loadMobileOfflineSnapshot(nextMonth, {
+          bankBalances: options?.bankBalances,
+          saldoCarteira: options?.saldoCarteira
+        });
+        setData(snapshot.dashboard);
+        setLancamentos(snapshot.lancamentosMes);
+        setPage(1);
+        return;
+      }
+
       const response = await fetch(`/api/dashboard?mes=${nextMonth}`);
       const payload = await response.json();
       if (!response.ok) {
@@ -276,6 +516,13 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
+      if (mobileOfflineMode) {
+        saveManualBalance(month, bankBalances, saldoCarteira);
+        await fetchDashboard(month, { skipLoading: true });
+        setOperationMessage("Saldo atualizado localmente.");
+        return;
+      }
+
       await persistLegacyBalance(month, bankBalances, saldoCarteira);
       saveManualBalance(month, bankBalances, saldoCarteira);
       await fetchDashboard(month, { skipLoading: true });
@@ -289,6 +536,13 @@ export default function DashboardPage() {
   async function fetchLancamentos(nextMonth: string) {
     setLoadingLanc(true);
     try {
+      if (mobileOfflineMode) {
+        const snapshot = await loadMobileOfflineSnapshot(nextMonth);
+        setLancamentos(snapshot.lancamentosMes);
+        setPage(1);
+        return;
+      }
+
       const response = await fetch(`/api/lancamentos?mes=${nextMonth}`);
       const payload = await response.json();
       if (!response.ok) {
@@ -305,6 +559,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const stored = readManualBalanceForMonth(month);
+    const nextBankBalances = stored?.bankBalances ?? createEmptyBankBalances();
+    const nextSaldoCarteira = stored?.saldoCarteira ?? "";
     if (stored) {
       setBankBalances(stored.bankBalances);
       setSaldoCarteira(stored.saldoCarteira);
@@ -319,9 +575,14 @@ export default function DashboardPage() {
     setShowProjecaoDespesasDetalhe(false);
     setReceitaEditId(null);
     setEditId(null);
-    void fetchDashboard(month);
-    void fetchLancamentos(month);
-  }, [month]);
+    void fetchDashboard(month, {
+      bankBalances: nextBankBalances,
+      saldoCarteira: nextSaldoCarteira
+    });
+    if (!mobileOfflineMode) {
+      void fetchLancamentos(month);
+    }
+  }, [month, mobileOfflineMode]);
 
   useEffect(() => {
     if (!data) {
@@ -430,6 +691,19 @@ export default function DashboardPage() {
         quem_pagou: item.quem_pagou
       };
 
+      if (mobileOfflineMode) {
+        await queueLancamentoUpdateLocal({
+          ...item,
+          ...payload,
+          created_at: item.created_at,
+          updated_at: new Date().toISOString()
+        });
+        setReceitaEditId(null);
+        setOperationMessage("Receita atualizada localmente. Use Sync para enviar.");
+        await fetchDashboard(month);
+        return;
+      }
+
       const response = await fetch("/api/lancamentos", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -467,6 +741,34 @@ export default function DashboardPage() {
         parcela_total: editForm.parcela_total ? Number(editForm.parcela_total) : null,
         parcela_numero: editForm.parcela_numero ? Number(editForm.parcela_numero) : null
       };
+
+      if (mobileOfflineMode) {
+        const current = lancamentos.find((item) => item.id === editId);
+        if (!current) {
+          throw new Error("Lancamento nao encontrado para edicao local.");
+        }
+        await queueLancamentoUpdateLocal({
+          ...current,
+          data: payload.data,
+          tipo: payload.tipo as Lancamento["tipo"],
+          descricao: payload.descricao,
+          categoria: payload.categoria,
+          valor: payload.valor,
+          atribuicao: payload.atribuicao as Lancamento["atribuicao"],
+          metodo: payload.metodo as Lancamento["metodo"],
+          parcela_total: payload.parcela_total,
+          parcela_numero: payload.parcela_numero,
+          observacao: payload.observacao,
+          quem_pagou: payload.quem_pagou as Lancamento["quem_pagou"],
+          created_at: current.created_at,
+          updated_at: new Date().toISOString()
+        });
+        setEditId(null);
+        setOperationMessage("Lancamento atualizado localmente. Use Sync para enviar.");
+        await fetchDashboard(month);
+        return;
+      }
+
       const response = await fetch("/api/lancamentos", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -491,6 +793,14 @@ export default function DashboardPage() {
     if (!confirm("Excluir este lancamento?")) return;
     try {
       setError(null);
+
+      if (mobileOfflineMode) {
+        await queueLancamentoDeleteLocal(id);
+        await fetchDashboard(month);
+        setOperationMessage("Lancamento excluido localmente. Use Sync para enviar.");
+        return;
+      }
+
       const response = await fetch(`/api/lancamentos?id=${id}`, { method: "DELETE" });
       const result = await response.json();
       if (!response.ok) {
@@ -580,7 +890,11 @@ export default function DashboardPage() {
     { id: "dea", label: deaLabel, value: deaValue },
     { id: "saldo_apos_dea", label: "Saldo apos acerto DEA", value: data?.saldoAposAcertoDEA ?? 0 },
     { id: "saldo_sistema", label: "Saldo sistema", value: data?.balancoSistema ?? 0 },
-    { id: "saldo_real", label: "SALDO REAL (VEM DA PLANILHA)", value: data?.balancoReal ?? 0 },
+    {
+      id: "saldo_real",
+      label: mobileOfflineMode ? "SALDO REAL (LOCAL)" : "SALDO REAL (VEM DA PLANILHA)",
+      value: data?.balancoReal ?? 0
+    },
     { id: "projecao_90", label: "Projecao 90 dias", value: data?.projecao90Dias?.saldoProjetado ?? 0 }
   ] as const;
 
@@ -596,6 +910,11 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-ink">Início</h1>
           <p className="text-sm font-medium text-ink/50">Bom dia, Walker</p>
+          {mobileOfflineMode ? (
+            <p className="mt-2 inline-flex rounded-full bg-ink/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink/70">
+              Dashboard local-first ativo
+            </p>
+          ) : null}
         </div>
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sand ring-1 ring-ink/5">
           <span className="text-xs font-bold text-ink/40">WG</span>

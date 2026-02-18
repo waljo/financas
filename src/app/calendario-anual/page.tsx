@@ -3,6 +3,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { CalendarioAnual } from "@/lib/types";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
+import { queueCalendarioAnualDeleteLocal, queueCalendarioAnualUpsertLocal } from "@/lib/mobileOffline/queue";
+import { MOBILE_OFFLINE_CALENDARIO_ANUAL_CACHE_KEY } from "@/lib/mobileOffline/storageKeys";
 
 const atribuicoes = ["WALKER", "DEA", "AMBOS", "AMBOS_I"];
 
@@ -34,7 +37,41 @@ const nomesMeses = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
 ];
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function ensureUuid(value?: string) {
+  if (value && UUID_PATTERN.test(value)) return value;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function readCachedCalendarioAnual(): CalendarioAnual[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CALENDARIO_ANUAL_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as CalendarioAnual[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedCalendarioAnual(rows: CalendarioAnual[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_CALENDARIO_ANUAL_CACHE_KEY, JSON.stringify(rows));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
 export default function CalendarioAnualPage() {
+  const { mobileOfflineMode } = useFeatureFlags();
   const [rows, setRows] = useState<CalendarioAnual[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -45,20 +82,30 @@ export default function CalendarioAnualPage() {
   async function load() {
     setLoading(true);
     setError("");
+    const cached = mobileOfflineMode ? readCachedCalendarioAnual() : [];
+    if (cached.length > 0) {
+      setRows(cached);
+    }
     try {
       const response = await fetch("/api/calendario-anual");
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? "Erro ao carregar calendário anual");
-      setRows(payload.data ?? []);
+      const remoteRows = (payload.data ?? []) as CalendarioAnual[];
+      setRows(remoteRows);
+      if (mobileOfflineMode) {
+        writeCachedCalendarioAnual(remoteRows);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado");
+      if (!mobileOfflineMode || cached.length === 0) {
+        setError(err instanceof Error ? err.message : "Erro inesperado");
+      }
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
   async function submit(event: FormEvent) {
@@ -73,6 +120,33 @@ export default function CalendarioAnualPage() {
         valor_estimado: Number(form.valor_estimado),
         dia_mes: form.dia_mes ? Number(form.dia_mes) : 1
       };
+
+      if (mobileOfflineMode) {
+        const localId = ensureUuid(form.id);
+        const localRow: CalendarioAnual = {
+          id: localId,
+          mes: payload.mes,
+          evento: String(payload.evento).trim(),
+          valor_estimado: payload.valor_estimado,
+          avisar_dias_antes: String(payload.avisar_dias_antes).trim(),
+          atribuicao: payload.atribuicao as CalendarioAnual["atribuicao"],
+          categoria: String(payload.categoria).trim(),
+          observacao: String(payload.observacao ?? "").trim(),
+          dia_mes: payload.dia_mes
+        };
+
+        const nextRows = form.id
+          ? rows.map((item) => (item.id === form.id ? localRow : item))
+          : [localRow, ...rows];
+
+        setRows(nextRows);
+        writeCachedCalendarioAnual(nextRows);
+        await queueCalendarioAnualUpsertLocal(localRow);
+        setMessage(form.id ? "Evento atualizado localmente. Use Sync para enviar." : "Evento salvo localmente. Use Sync para enviar.");
+        setForm(initialForm);
+        setIsFormOpen(false);
+        return;
+      }
 
       const method = form.id ? "PUT" : "POST";
       const response = await fetch("/api/calendario-anual", {
@@ -114,6 +188,15 @@ export default function CalendarioAnualPage() {
     setError("");
     setMessage("");
 
+    if (mobileOfflineMode) {
+      const nextRows = rows.filter((item) => item.id !== id);
+      setRows(nextRows);
+      writeCachedCalendarioAnual(nextRows);
+      await queueCalendarioAnualDeleteLocal(id);
+      setMessage("Evento excluído localmente. Use Sync para enviar.");
+      return;
+    }
+
     try {
       const response = await fetch(`/api/calendario-anual?id=${encodeURIComponent(id)}`, {
         method: "DELETE"
@@ -134,6 +217,11 @@ export default function CalendarioAnualPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-ink">Calendário Anual</h1>
           <p className="text-sm font-medium text-ink/50">Planejamento de despesas sazonais</p>
+          {mobileOfflineMode ? (
+            <p className="mt-2 inline-flex rounded-full bg-ink/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink/70">
+              Modo offline: alterações salvas localmente
+            </p>
+          ) : null}
         </div>
         <button
           onClick={() => {

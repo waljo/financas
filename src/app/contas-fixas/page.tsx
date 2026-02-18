@@ -3,6 +3,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { PESSOA_PAGADORA, type ContaFixa } from "@/lib/types";
 import { CategoryPicker } from "@/components/CategoryPicker";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
+import { queueContaFixaDeleteLocal, queueContaFixaUpsertLocal } from "@/lib/mobileOffline/queue";
+import { MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY } from "@/lib/mobileOffline/storageKeys";
 
 const atribuicoes = ["WALKER", "DEA", "AMBOS", "AMBOS_I"];
 
@@ -29,6 +32,39 @@ const initialForm: ContaFixaForm = {
   ativo: true
 };
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function ensureUuid(value?: string) {
+  if (value && UUID_PATTERN.test(value)) return value;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function readCachedContasFixas(): ContaFixa[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as ContaFixa[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedContasFixas(rows: ContaFixa[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY, JSON.stringify(rows));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
 function walkerShareByAtribuicao(atribuicao: string, valor: number): number {
   const normalized = atribuicao.trim().toUpperCase();
   if (normalized === "WALKER") return valor;
@@ -38,6 +74,7 @@ function walkerShareByAtribuicao(atribuicao: string, valor: number): number {
 }
 
 export default function ContasFixasPage() {
+  const { mobileOfflineMode } = useFeatureFlags();
   const [rows, setRows] = useState<ContaFixa[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -48,13 +85,23 @@ export default function ContasFixasPage() {
   async function load() {
     setLoading(true);
     setError("");
+    const cached = mobileOfflineMode ? readCachedContasFixas() : [];
+    if (cached.length > 0) {
+      setRows(cached);
+    }
     try {
       const response = await fetch("/api/contas-fixas");
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? "Erro ao carregar contas fixas");
-      setRows(payload.data ?? []);
+      const remoteRows = (payload.data ?? []) as ContaFixa[];
+      setRows(remoteRows);
+      if (mobileOfflineMode) {
+        writeCachedContasFixas(remoteRows);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro inesperado");
+      if (!mobileOfflineMode || cached.length === 0) {
+        setError(err instanceof Error ? err.message : "Erro inesperado");
+      }
     } finally {
       setLoading(false);
     }
@@ -76,6 +123,43 @@ export default function ContasFixasPage() {
         valor_previsto: form.valor_previsto ? Number(form.valor_previsto) : null,
         ativo: Boolean(form.ativo)
       };
+
+      if (mobileOfflineMode) {
+        const localId = ensureUuid(form.id);
+        const localRow: ContaFixa = {
+          id: localId,
+          nome: String(payload.nome).trim(),
+          dia_vencimento: payload.dia_vencimento,
+          valor_previsto: payload.valor_previsto,
+          atribuicao: payload.atribuicao as ContaFixa["atribuicao"],
+          quem_pagou: payload.quem_pagou as ContaFixa["quem_pagou"],
+          categoria: String(payload.categoria).trim(),
+          avisar_dias_antes: String(payload.avisar_dias_antes).trim(),
+          ativo: payload.ativo
+        };
+
+        const nextRows = form.id
+          ? rows.map((item) => (item.id === form.id ? localRow : item))
+          : [localRow, ...rows];
+        setRows(nextRows);
+        writeCachedContasFixas(nextRows);
+        await queueContaFixaUpsertLocal({
+          id: localId,
+          nome: localRow.nome,
+          dia_vencimento: localRow.dia_vencimento,
+          valor_previsto: localRow.valor_previsto,
+          atribuicao: localRow.atribuicao,
+          quem_pagou: localRow.quem_pagou,
+          categoria: localRow.categoria,
+          avisar_dias_antes: localRow.avisar_dias_antes,
+          ativo: localRow.ativo
+        });
+        setMessage(form.id ? "Atualizada localmente. Use Sync para enviar." : "Cadastrada localmente. Use Sync para enviar.");
+
+        setForm(initialForm);
+        setIsFormOpen(false);
+        return;
+      }
 
       const method = form.id ? "PUT" : "POST";
       const response = await fetch("/api/contas-fixas", {
@@ -117,6 +201,15 @@ export default function ContasFixasPage() {
     setError("");
     setMessage("");
 
+    if (mobileOfflineMode) {
+      const nextRows = rows.filter((item) => item.id !== id);
+      setRows(nextRows);
+      writeCachedContasFixas(nextRows);
+      await queueContaFixaDeleteLocal(id);
+      setMessage("Excluída localmente. Use Sync para enviar.");
+      return;
+    }
+
     try {
       const response = await fetch(`/api/contas-fixas?id=${encodeURIComponent(id)}`, {
         method: "DELETE"
@@ -151,6 +244,11 @@ export default function ContasFixasPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-ink">Contas Fixas</h1>
           <p className="text-sm font-medium text-ink/50">Gestão de gastos mensais</p>
+          {mobileOfflineMode ? (
+            <p className="mt-2 inline-flex rounded-full bg-ink/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink/70">
+              Modo offline: alterações salvas localmente
+            </p>
+          ) : null}
         </div>
         <button
           onClick={() => {

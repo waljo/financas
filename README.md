@@ -92,6 +92,8 @@ APPS_SCRIPT_APP_TOKEN=troque-por-um-token-forte
 
 Com a flag ativa:
 - novos lancamentos em `/lancar` entram na fila local (IndexedDB)
+- alteracoes em `/contas-fixas` e `/calendario-anual` tambem entram na fila local (`upsert/delete`)
+- alteracoes em `/categorias` tambem entram na fila local (`upsert/delete`)
 - nada e enviado automaticamente para o Sheets
 - o envio ocorre somente em `/sync` ao clicar `Sincronizar agora`
 - se `APPS_SCRIPT_WEB_APP_URL` e `APPS_SCRIPT_APP_TOKEN` estiverem vazios, o app usa fallback automatico para sync direto no Google Sheets (OAuth existente)
@@ -99,6 +101,7 @@ Com a flag ativa:
 ### IndexedDB usado
 - store `lancamentos_local`: `id, payload, synced, created_at, updated_at`
 - store `sync_state`: `id=global, last_sync_at, last_sync_status, last_sync_error`
+- store `sync_ops`: operacoes pendentes por entidade (`lancamento`, `conta_fixa`, `calendario_anual`, `categoria`)
 
 ### Rodar no PC e abrir no Android (LAN)
 1. No PC, rode:
@@ -342,3 +345,37 @@ Ao usar Codex/IA neste projeto, considerar como autoridade:
 ### Prompt padrão recomendado
 Ao iniciar uma tarefa com Codex, usar o padrão definido em:
 `docs/codex_workflow.md`
+
+## 14) Trilha Android Nativo (em andamento)
+- Roadmap oficial: `docs/ANDROID_NATIVE_ROADMAP.md`
+- Objetivo: app Android nativo com banco local como fonte de verdade e sincronizacao manual com Sheets.
+- Base inicial do app nativo: `apps/android-native`
+- Fluxo local implementado no app nativo: categorias, lancamentos, contas fixas, calendario anual, receitas_regras, cartoes e compras de cartao (com fila de sync manual).
+- Sync nativo com historico local detalhado (eventos de inicio/sucesso/erro).
+- Analytics nativo local: dashboard mensal e projecao de 90 dias offline.
+- Relatorios nativos locais: total por categoria/atribuicao e parcelas ativas.
+- Comparativo local (12 meses): receitas, despesas, saldo e comprometimento por mes.
+- Formulario de lancamentos nativo com seletores de tipo/atribuicao/metodo/quem pagou.
+- Paridade funcional dos fluxos da `main` no nativo: CRUD completo, relatorios e ferramentas online para importacao/cartoes/categorias.
+
+### Endpoint de bootstrap para app nativo
+- `GET /api/mobile/bootstrap`
+- Requer: `MOBILE_OFFLINE_MODE=true`
+- Retorna snapshot completo para hidratar banco local no celular:
+  - `lancamentos`
+  - `contas_fixas`
+  - `calendario_anual`
+  - `receitas_regras`
+  - `categorias`
+  - `cartoes`
+  - `cartao_movimentos`
+
+Parametro opcional:
+- `include_inactive_categories=0|1` (padrao `1`)
+
+### Rodar app nativo (fase inicial)
+```bash
+cd apps/android-native
+npm install
+npm run start
+```

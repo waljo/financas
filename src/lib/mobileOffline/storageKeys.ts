@@ -1,0 +1,7 @@
+export const MOBILE_OFFLINE_CONTAS_FIXAS_CACHE_KEY = "mobile_offline_contas_fixas_cache";
+export const MOBILE_OFFLINE_LANCAMENTOS_CACHE_KEY = "mobile_offline_lancamentos_cache_v1";
+export const MOBILE_OFFLINE_CATEGORIAS_CACHE_KEY = "mobile_offline_categorias_cache_v1";
+export const MOBILE_OFFLINE_CALENDARIO_ANUAL_CACHE_KEY = "mobile_offline_calendario_anual_cache_v1";
+export const MOBILE_OFFLINE_RECEITAS_REGRAS_CACHE_KEY = "mobile_offline_receitas_regras_cache_v1";
+export const MOBILE_OFFLINE_CARTOES_CACHE_KEY = "mobile_offline_cartoes_cache_v1";
+export const MOBILE_OFFLINE_CARTAO_MOVIMENTOS_CACHE_KEY = "mobile_offline_cartao_movimentos_cache_v1";

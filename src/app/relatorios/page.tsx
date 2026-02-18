@@ -1,14 +1,102 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { RelatorioMensal, RelatorioParcelasDetalhe } from "@/lib/types";
+import { splitByAtribuicao } from "@/domain/attribution";
+import {
+  computeComprometimentoParcelasDetalhe,
+  computeReport,
+  filterByMonth
+} from "@/domain/calculations";
+import { useFeatureFlags } from "@/components/FeatureFlagsProvider";
+import {
+  listLocalLancamentos,
+  type LocalLancamentoRecord
+} from "@/lib/mobileOffline/db";
+import { MOBILE_OFFLINE_LANCAMENTOS_CACHE_KEY } from "@/lib/mobileOffline/storageKeys";
+import type { Lancamento, RelatorioMensal, RelatorioParcelasDetalhe } from "@/lib/types";
 
 function currentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function readCachedLancamentos(): Lancamento[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MOBILE_OFFLINE_LANCAMENTOS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as Lancamento[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedLancamentos(items: Lancamento[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MOBILE_OFFLINE_LANCAMENTOS_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignora falhas de persistencia local.
+  }
+}
+
+function fromLocalRecord(record: LocalLancamentoRecord): Lancamento {
+  return {
+    ...record.payload,
+    id: record.id,
+    created_at: record.payload.created_at ?? record.created_at,
+    updated_at: record.payload.updated_at ?? record.updated_at
+  };
+}
+
+function mergeLancamentosById(remote: Lancamento[], localRecords: LocalLancamentoRecord[]) {
+  const byId = new Map<string, Lancamento>();
+  for (const item of remote) {
+    byId.set(item.id, item);
+  }
+  for (const record of localRecords) {
+    const next = fromLocalRecord(record);
+    const current = byId.get(next.id);
+    if (!current || current.updated_at <= next.updated_at) {
+      byId.set(next.id, next);
+    }
+  }
+  return [...byId.values()];
+}
+
+function buildParcelasDetalheLocal(month: string, lancamentos: Lancamento[]): RelatorioParcelasDetalhe {
+  const lancamentosMes = filterByMonth(lancamentos, month);
+  const receitasMes = lancamentosMes
+    .filter((item) => item.tipo === "receita")
+    .reduce((acc, item) => acc + item.valor, 0);
+
+  const items = lancamentosMes
+    .filter((item) => item.tipo === "despesa")
+    .filter((item) => item.parcela_total && item.parcela_total > 1)
+    .filter((item) => item.metodo === "cartao")
+    .map((item) => ({
+      id: item.id,
+      origem: "lancamentos" as const,
+      descricao: item.descricao,
+      categoria: item.categoria,
+      valorParcela: splitByAtribuicao(item.atribuicao, item.valor).walker,
+      parcelaTotal: item.parcela_total,
+      parcelaNumero: item.parcela_numero,
+      mesReferencia: month
+    }))
+    .filter((item) => item.valorParcela > 0.009);
+
+  return computeComprometimentoParcelasDetalhe({
+    month,
+    receitasMes,
+    items
+  });
+}
+
 export default function RelatoriosPage() {
+  const { mobileOfflineMode } = useFeatureFlags();
   const [month, setMonth] = useState(currentMonth());
   const [data, setData] = useState<RelatorioMensal | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,10 +117,55 @@ export default function RelatoriosPage() {
     return dtf.format(new Date(Date.UTC(year, mon - 1, 1))).replace(".", "");
   }
 
+  const loadMergedLancamentosLocalFirst = useCallback(async () => {
+    const localRecords = await listLocalLancamentos();
+    const cachedLancamentos = readCachedLancamentos();
+    const online = typeof navigator === "undefined" ? true : navigator.onLine;
+
+    let remoteLancamentos: Lancamento[] | null = null;
+    if (online) {
+      try {
+        const response = await fetch("/api/lancamentos");
+        const payload = await response.json();
+        if (response.ok) {
+          remoteLancamentos = (payload.data ?? []) as Lancamento[];
+          writeCachedLancamentos(remoteLancamentos);
+        }
+      } catch {
+        remoteLancamentos = null;
+      }
+    }
+
+    return mergeLancamentosById(remoteLancamentos ?? cachedLancamentos, localRecords);
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
+      if (mobileOfflineMode) {
+        const online = typeof navigator === "undefined" ? true : navigator.onLine;
+        if (online) {
+          try {
+            const response = await fetch(`/api/relatorios?mes=${month}`);
+            const payload = await response.json();
+            if (response.ok) {
+              setData(payload.data as RelatorioMensal);
+              return;
+            }
+          } catch {
+            // Tenta fallback local abaixo.
+          }
+        }
+
+        const lancamentos = await loadMergedLancamentosLocalFirst();
+        if (lancamentos.length === 0) {
+          throw new Error("Sem dados locais para gerar relatorio.");
+        }
+        setData(computeReport(month, lancamentos));
+        return;
+      }
+
       const response = await fetch(`/api/relatorios?mes=${month}`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message ?? "Erro ao carregar relatorio");
@@ -42,7 +175,7 @@ export default function RelatoriosPage() {
     } finally {
       setLoading(false);
     }
-  }, [month]);
+  }, [loadMergedLancamentosLocalFirst, mobileOfflineMode, month]);
 
   const loadParcelasDetalhe = useCallback(
     async (targetMonth: string) => {
@@ -50,6 +183,27 @@ export default function RelatoriosPage() {
       setParcelasLoading(true);
       setParcelasError("");
       try {
+        if (mobileOfflineMode) {
+          const online = typeof navigator === "undefined" ? true : navigator.onLine;
+          if (online) {
+            try {
+              const response = await fetch(`/api/relatorios/parcelas?mes=${targetMonth}`);
+              const payload = await response.json();
+              if (response.ok) {
+                setParcelasByMonth((prev) => ({ ...prev, [targetMonth]: payload.data }));
+                return;
+              }
+            } catch {
+              // Tenta fallback local abaixo.
+            }
+          }
+
+          const lancamentos = await loadMergedLancamentosLocalFirst();
+          const detalhe = buildParcelasDetalheLocal(targetMonth, lancamentos);
+          setParcelasByMonth((prev) => ({ ...prev, [targetMonth]: detalhe }));
+          return;
+        }
+
         const response = await fetch(`/api/relatorios/parcelas?mes=${targetMonth}`);
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.message ?? "Erro ao carregar detalhe das parcelas");
@@ -60,11 +214,11 @@ export default function RelatoriosPage() {
         setParcelasLoading(false);
       }
     },
-    [parcelasByMonth]
+    [loadMergedLancamentosLocalFirst, mobileOfflineMode, parcelasByMonth]
   );
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {

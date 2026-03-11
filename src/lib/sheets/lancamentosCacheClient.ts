@@ -6,6 +6,9 @@ import { readLancamentos } from "@/lib/sheets/sheetsClient";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const META_SYNCED_AT_KEY = "lancamentos_synced_at";
+const META_SYNC_LAST_RUN_AT_KEY = "sync_last_run_at";
+const META_SYNC_LAST_SUCCESS_AT_KEY = "sync_last_success_at";
+const META_SYNC_LAST_ERROR_KEY = "sync_last_error";
 
 let db: DatabaseSync | null = null;
 let schemaReady = false;
@@ -113,6 +116,22 @@ function writeMeta(key: string, value: string): void {
     .run(key, value);
 }
 
+function asNullableMeta(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function readCacheCount(): number {
+  ensureSchemaSync();
+  const conn = getDb();
+  const row = conn
+    .prepare("SELECT COUNT(*) as count FROM lancamentos_cache")
+    .get() as { count: number } | undefined;
+  const count = Number(row?.count ?? 0);
+  return Number.isFinite(count) ? count : 0;
+}
+
 function readCacheRows(): Lancamento[] {
   ensureSchemaSync();
   const conn = getDb();
@@ -211,3 +230,48 @@ export async function readLancamentosCached(): Promise<Lancamento[]> {
   }
 }
 
+export interface LancamentosCacheStatus {
+  count: number;
+  syncedAt: string | null;
+  fresh: boolean;
+  ttlMs: number;
+}
+
+export interface SyncStatusMeta {
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+}
+
+export function readLancamentosCacheStatus(): LancamentosCacheStatus {
+  ensureSchemaSync();
+  const nowMs = Date.now();
+  const syncedAt = asNullableMeta(readMeta(META_SYNCED_AT_KEY));
+
+  return {
+    count: readCacheCount(),
+    syncedAt,
+    fresh: isCacheFresh(nowMs),
+    ttlMs: CACHE_TTL_MS
+  };
+}
+
+export function readSyncStatusMeta(): SyncStatusMeta {
+  return {
+    lastRunAt: asNullableMeta(readMeta(META_SYNC_LAST_RUN_AT_KEY)),
+    lastSuccessAt: asNullableMeta(readMeta(META_SYNC_LAST_SUCCESS_AT_KEY)),
+    lastError: asNullableMeta(readMeta(META_SYNC_LAST_ERROR_KEY))
+  };
+}
+
+export function writeSyncStatusMeta(next: Partial<SyncStatusMeta>): void {
+  if (Object.prototype.hasOwnProperty.call(next, "lastRunAt")) {
+    writeMeta(META_SYNC_LAST_RUN_AT_KEY, next.lastRunAt ?? "");
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "lastSuccessAt")) {
+    writeMeta(META_SYNC_LAST_SUCCESS_AT_KEY, next.lastSuccessAt ?? "");
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "lastError")) {
+    writeMeta(META_SYNC_LAST_ERROR_KEY, next.lastError ?? "");
+  }
+}

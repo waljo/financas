@@ -45,6 +45,12 @@ function normalizeText(value: string): string {
     .toUpperCase();
 }
 
+function cleanLegacyStatusTag(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/\s*\[LEGADO:[A-Z_]+\](?:\s*\([^)]+\))?(?:\s*\(range [^)]+\))?/g, "")
+    .trim();
+}
+
 function parseYmd(value: string): { year: number; month: number; day: number } | null {
   const [yearRaw, monthRaw, dayRaw] = value.split("-");
   const year = Number(yearRaw);
@@ -148,6 +154,46 @@ async function getSheetIdByName(sheetName: string): Promise<number> {
     throw new AppError(`Aba ${sheetName} nao encontrada`, 404, "SHEET_NOT_FOUND");
   }
   return sheetId;
+}
+
+async function setCellNote(params: {
+  sheetName: string;
+  row: number;
+  col: number;
+  note: string;
+}): Promise<void> {
+  const config = getConfig();
+  const sheetsApi = getSheetsApi();
+  const sheetId = await getSheetIdByName(params.sheetName);
+
+  await sheetsApi.spreadsheets.batchUpdate({
+    spreadsheetId: config.googleSpreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          updateCells: {
+            range: {
+              sheetId,
+              startRowIndex: params.row - 1,
+              endRowIndex: params.row,
+              startColumnIndex: params.col - 1,
+              endColumnIndex: params.col
+            },
+            rows: [
+              {
+                values: [
+                  {
+                    note: params.note
+                  }
+                ]
+              }
+            ],
+            fields: "note"
+          }
+        }
+      ]
+    }
+  });
 }
 
 const ENSURE_SCHEMA_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -356,6 +402,15 @@ export async function appendLegacyLancamento(
       requestBody: { values }
     });
 
+    if (lancamento.tipo === "despesa") {
+      await setCellNote({
+        sheetName: yearSheet,
+        row: targetRow,
+        col: startCol,
+        note: cleanLegacyStatusTag(lancamento.observacao)
+      });
+    }
+
     return { status: "ok", sheet: yearSheet, range, row: targetRow, month };
   } catch (error) {
     return { status: "error", message: "Falha ao gravar no layout legado." };
@@ -468,6 +523,19 @@ export async function removeLegacyLancamento(
     valueInputOption: "RAW",
     requestBody: { values: emptyValues }
   });
+
+  if (lancamento.tipo === "despesa") {
+    try {
+      await setCellNote({
+        sheetName: yearSheet,
+        row: targetRow,
+        col: startCol,
+        note: ""
+      });
+    } catch {
+      // Mantem remocao de valores mesmo que a limpeza de nota falhe.
+    }
+  }
 
   return { status: "ok" };
 }
